@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  AGAR.IO CLONE — Complete Mobile Game Engine
+//  AGAR.IO CLONE — Complete Mobile Game Engine (v2)
 // ═══════════════════════════════════════════════════════════════
 
 // ── Constants ────────────────────────────────────────────────
@@ -24,8 +24,8 @@ const SPLIT_SPEED = 900;
 const DECAY_THRESHOLD = 300;
 const DECAY_RATE = 0.001; // per second
 
-const EAT_OVERLAP = 0.33; // fraction of radius overlap needed to eat
-const EAT_SIZE_RATIO = 1.15; // must be 15% bigger to eat
+const EAT_OVERLAP = 0.33;
+const EAT_SIZE_RATIO = 1.15;
 
 const BASE_SPEED = 450;
 
@@ -63,10 +63,6 @@ function randomRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
-function randomInt(min, max) {
-  return Math.floor(randomRange(min, max + 1));
-}
-
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -88,18 +84,23 @@ function massToSpeed(mass) {
 }
 
 function darkenColor(hex, amount) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
+  let r, g, b;
+  if (hex[0] === '#') {
+    r = parseInt(hex.slice(1, 3), 16);
+    g = parseInt(hex.slice(3, 5), 16);
+    b = parseInt(hex.slice(5, 7), 16);
+  } else {
+    return hex;
+  }
   const f = 1 - amount;
-  return `rgb(${Math.floor(r * f)},${Math.floor(g * f)},${Math.floor(b * f)})`;
+  return 'rgb(' + (r * f | 0) + ',' + (g * f | 0) + ',' + (b * f | 0) + ')';
 }
 
 function formatTime(ms) {
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return s + 's';
   const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
+  return m + 'm ' + (s % 60) + 's';
 }
 
 
@@ -111,30 +112,17 @@ class Cell {
     this.mass = mass;
     this.color = color;
     this.name = name || '';
-
-    // Velocity (for split impulse / eject)
     this.vx = 0;
     this.vy = 0;
-
-    // For player split cells
     this.mergeTime = 0;
-
-    // Wobble effect
     this.wobblePhase = Math.random() * Math.PI * 2;
     this.wobbleSpeed = 2 + Math.random() * 2;
-
-    // Track last movement direction (for split/eject when joystick released)
     this.lastDirX = 0;
     this.lastDirY = 1;
   }
 
-  get radius() {
-    return massToRadius(this.mass);
-  }
-
-  get speed() {
-    return massToSpeed(this.mass);
-  }
+  get radius() { return massToRadius(this.mass); }
+  get speed() { return massToSpeed(this.mass); }
 
   clampToWorld() {
     const r = this.radius;
@@ -146,13 +134,12 @@ class Cell {
 
 // ── Food Class ───────────────────────────────────────────────
 class Food {
-  constructor(x, y) {
-    this.x = x || randomRange(20, WORLD_W - 20);
-    this.y = y || randomRange(20, WORLD_H - 20);
+  constructor() {
+    this.x = randomRange(20, WORLD_W - 20);
+    this.y = randomRange(20, WORLD_H - 20);
     this.mass = FOOD_MASS;
     this.color = pick(FOOD_COLORS);
     this.radius = 6 + Math.random() * 3;
-    // Slight animation
     this.pulsePhase = Math.random() * Math.PI * 2;
   }
 }
@@ -202,7 +189,6 @@ class Bot {
   update(dt, game) {
     if (!this.alive) return;
 
-    // Decision making
     this.decisionTimer -= dt;
     if (this.decisionTimer <= 0) {
       this.decisionTimer = 0.3 + Math.random() * 0.4;
@@ -244,7 +230,7 @@ class Bot {
         break;
     }
 
-    // Boundary avoidance — steer away from edges
+    // Boundary avoidance — steer away from edges (BEFORE movement)
     const margin = 150;
     if (this.cell.x < margin) dirX += 0.5;
     if (this.cell.x > WORLD_W - margin) dirX -= 0.5;
@@ -261,7 +247,6 @@ class Bot {
       this.cell.lastDirY = dirY;
     }
 
-    // Clamp to world
     this.cell.clampToWorld();
 
     // Mass decay
@@ -273,6 +258,9 @@ class Bot {
     if (this.cell.mass < 80) {
       this.cell.mass += 2 * dt;
     }
+
+    // Wobble animation
+    this.cell.wobblePhase += this.cell.wobbleSpeed * dt;
   }
 
   decide(game) {
@@ -286,7 +274,8 @@ class Bot {
     let nearestPreyDist = Infinity;
 
     // Check player cells
-    for (const pc of game.playerCells) {
+    for (let k = 0; k < game.playerCells.length; k++) {
+      const pc = game.playerCells[k];
       const d = dist(myX, myY, pc.x, pc.y);
       if (pc.mass > myMass * EAT_SIZE_RATIO && d < nearestThreatDist) {
         nearestThreat = pc;
@@ -298,7 +287,8 @@ class Bot {
     }
 
     // Check other bots
-    for (const bot of game.bots) {
+    for (let k = 0; k < game.bots.length; k++) {
+      const bot = game.bots[k];
       if (bot === this || !bot.alive) continue;
       const bc = bot.cell;
       const d = dist(myX, myY, bc.x, bc.y);
@@ -330,7 +320,8 @@ class Bot {
     // Find nearest food
     let nearestFood = null;
     let nearestFoodDist = Infinity;
-    for (const food of game.foods) {
+    for (let k = 0; k < game.foods.length; k++) {
+      const food = game.foods[k];
       const d = dist(myX, myY, food.x, food.y);
       if (d < nearestFoodDist) {
         nearestFood = food;
@@ -363,7 +354,7 @@ class Bot {
 class Camera {
   constructor(viewW, viewH) {
     this.viewW = viewW || 300;
-    this.viewH = viewH || 150;
+    this.viewH = viewH || 300;
     this.x = WORLD_W / 2;
     this.y = WORLD_H / 2;
     this.zoom = 1;
@@ -375,7 +366,6 @@ class Camera {
   follow(x, y, totalMass) {
     this.targetX = x;
     this.targetY = y;
-    // Zoom out as player gets bigger
     this.targetZoom = Math.min(1.2, Math.pow(200 / Math.max(totalMass, 100), 0.32));
     this.targetZoom = Math.max(0.08, this.targetZoom);
   }
@@ -401,7 +391,6 @@ class Camera {
     };
   }
 
-  // Visible bounds in world coords
   getViewBounds() {
     const hw = (this.viewW / 2) / this.zoom;
     const hh = (this.viewH / 2) / this.zoom;
@@ -431,8 +420,7 @@ class Joystick {
     this.stickY = 0;
     this.touchId = null;
     this.maxRadius = 55;
-
-    // Normalized direction (-1 to 1)
+    // Normalized direction
     this.dirX = 0;
     this.dirY = 0;
     // 0 to 1
@@ -455,7 +443,16 @@ class Joystick {
     if (!this.active) return;
     const dx = x - this.baseX;
     const dy = y - this.baseY;
-    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    if (d < 1) {
+      this.stickX = x;
+      this.stickY = y;
+      this.dirX = 0;
+      this.dirY = 0;
+      this.magnitude = 0;
+      return;
+    }
 
     if (d > this.maxRadius) {
       this.stickX = this.baseX + (dx / d) * this.maxRadius;
@@ -486,23 +483,23 @@ class Joystick {
     ctx.arc(this.baseX, this.baseY, this.maxRadius, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Inner stick
     ctx.beginPath();
     ctx.arc(this.stickX, this.stickY, 22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 }
 
 
-// ── Particle (for eat effects) ───────────────────────────────
+// ── Particle ─────────────────────────────────────────────────
 class Particle {
   constructor(x, y, color) {
     this.x = x;
@@ -531,96 +528,156 @@ class Particle {
 }
 
 
+// ── Settings ─────────────────────────────────────────────────
+class Settings {
+  constructor() {
+    this.leftHanded = false;
+    this.showMinimap = true;
+    this.showLeaderboard = true;
+    this.buttonSize = 64;
+    this.load();
+  }
+
+  load() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('agario_settings'));
+      if (saved) {
+        if (saved.leftHanded !== undefined) this.leftHanded = saved.leftHanded;
+        if (saved.showMinimap !== undefined) this.showMinimap = saved.showMinimap;
+        if (saved.showLeaderboard !== undefined) this.showLeaderboard = saved.showLeaderboard;
+        if (saved.buttonSize !== undefined) this.buttonSize = saved.buttonSize;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  save() {
+    try {
+      localStorage.setItem('agario_settings', JSON.stringify({
+        leftHanded: this.leftHanded,
+        showMinimap: this.showMinimap,
+        showLeaderboard: this.showLeaderboard,
+        buttonSize: this.buttonSize,
+      }));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  apply() {
+    const hud = document.getElementById('hud');
+
+    // Left-handed mode
+    if (this.leftHanded) {
+      hud.classList.add('left-handed');
+    } else {
+      hud.classList.remove('left-handed');
+    }
+
+    // Show/hide elements
+    document.getElementById('minimapContainer').style.display = this.showMinimap ? '' : 'none';
+    document.getElementById('leaderboard').style.display = this.showLeaderboard ? '' : 'none';
+
+    // Button size
+    var btns = document.querySelectorAll('.action-btn');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].style.width = this.buttonSize + 'px';
+      btns[i].style.height = this.buttonSize + 'px';
+      btns[i].style.fontSize = Math.max(9, this.buttonSize * 0.17) + 'px';
+    }
+
+    // Sync UI controls
+    document.getElementById('toggleLeftHand').checked = this.leftHanded;
+    document.getElementById('toggleMinimap').checked = this.showMinimap;
+    document.getElementById('toggleLeaderboard').checked = this.showLeaderboard;
+    document.getElementById('selectBtnSize').value = String(this.buttonSize);
+  }
+}
+
+
 // ═════════════════════════════════════════════════════════════
 //  MAIN GAME CLASS
 // ═════════════════════════════════════════════════════════════
 class Game {
   constructor() {
-    // Canvas
     this.canvas = document.getElementById('gameCanvas');
     this.ctx = this.canvas.getContext('2d');
     this.minimapCanvas = document.getElementById('minimap');
     this.minimapCtx = this.minimapCanvas.getContext('2d');
 
-    // Game state
-    this.state = 'menu'; // menu | playing | dead
+    this.state = 'menu'; // menu | playing | dead | settings
     this.playerName = '';
     this.playerColor = '';
 
-    // Entities
     this.playerCells = [];
     this.foods = [];
     this.bots = [];
     this.ejectedMass = [];
     this.particles = [];
 
-    // Systems
     this.camera = new Camera(window.innerWidth, window.innerHeight);
     this.joystick = new Joystick();
+    this.settings = new Settings();
 
-    // Stats
     this.score = 0;
     this.maxMass = 0;
     this.startTime = 0;
-
-    // Timing
     this.lastTime = 0;
-    this.fps = 0;
-    this.fpsCounter = 0;
-    this.fpsTime = 0;
-
-    // Screen shake
     this.shakeAmount = 0;
-
-    // Input
     this.keys = {};
 
-    // Init
+    // Throttle HUD updates
+    this.lastHudUpdate = 0;
+
     this.resizeCanvas();
     this.setupInput();
     this.setupUI();
     this.spawnFood();
     this.spawnBots();
+    this.settings.apply();
 
     // Start loop
-    requestAnimationFrame((t) => this.gameLoop(t));
+    requestAnimationFrame(function (t) { game.gameLoop(t); });
   }
 
   // ── Canvas Resize ──────────────────────────────────────────
   resizeCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = window.innerWidth * dpr;
-    this.canvas.height = window.innerHeight * dpr;
-    this.ctx.scale(dpr, dpr);
-    this.canvasW = window.innerWidth;
-    this.canvasH = window.innerHeight;
+    var dpr = window.devicePixelRatio || 1;
+    var w = window.innerWidth;
+    var h = window.innerHeight;
 
-    // Update camera viewport to logical dimensions
-    if (this.camera) {
-      this.camera.viewW = this.canvasW;
-      this.camera.viewH = this.canvasH;
-    }
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.canvasW = w;
+    this.canvasH = h;
 
-    // Minimap
-    const mm = this.minimapCanvas;
-    const mmSize = parseInt(getComputedStyle(mm).width) || 120;
+    // Update camera viewport (logical pixels)
+    this.camera.viewW = w;
+    this.camera.viewH = h;
+
+    // Minimap — use CSS size if available, else fallback
+    var mm = this.minimapCanvas;
+    var mmRect = mm.getBoundingClientRect();
+    var mmSize = Math.round(mmRect.width) || 120;
     mm.width = mmSize * dpr;
     mm.height = mmSize * dpr;
-    this.minimapCtx.scale(dpr, dpr);
+    this.minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.minimapSize = mmSize;
   }
 
   // ── Spawn Entities ─────────────────────────────────────────
   spawnFood() {
     this.foods = [];
-    for (let i = 0; i < FOOD_COUNT; i++) {
+    for (var i = 0; i < FOOD_COUNT; i++) {
       this.foods.push(new Food());
     }
   }
 
   spawnBots() {
     this.bots = [];
-    for (let i = 0; i < BOT_COUNT; i++) {
+    for (var i = 0; i < BOT_COUNT; i++) {
       this.bots.push(new Bot());
     }
   }
@@ -630,15 +687,14 @@ class Game {
     this.playerName = name || 'Cell';
     this.playerColor = pick(CELL_COLORS);
 
-    const startCell = new Cell(
+    var startCell = new Cell(
       WORLD_W / 2 + randomRange(-200, 200),
       WORLD_H / 2 + randomRange(-200, 200),
       START_MASS,
       this.playerColor,
-      this.playerName,
+      this.playerName
     );
     this.playerCells = [startCell];
-
     this.score = 0;
     this.maxMass = START_MASS;
     this.startTime = performance.now();
@@ -647,26 +703,29 @@ class Game {
     this.particles = [];
     this.ejectedMass = [];
 
-    // Reset foods and bots
     this.spawnFood();
     this.spawnBots();
 
     // Camera snap
     this.camera.x = startCell.x;
     this.camera.y = startCell.y;
+    this.camera.targetX = startCell.x;
+    this.camera.targetY = startCell.y;
 
-    // Show HUD
+    // Show HUD, hide overlays
     document.getElementById('hud').style.display = 'block';
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('deathScreen').style.display = 'none';
+    document.getElementById('settingsOverlay').style.display = 'none';
 
-    // Re-measure minimap now that HUD is visible
+    // Re-measure now that HUD is visible
     this.resizeCanvas();
+    this.settings.apply();
   }
 
   die() {
     this.state = 'dead';
-    const aliveTime = performance.now() - this.startTime;
+    var aliveTime = performance.now() - this.startTime;
     document.getElementById('finalScore').textContent = Math.floor(this.score).toLocaleString();
     document.getElementById('finalMass').textContent = Math.floor(this.maxMass).toLocaleString();
     document.getElementById('finalTime').textContent = formatTime(aliveTime);
@@ -674,17 +733,18 @@ class Game {
     document.getElementById('hud').style.display = 'none';
   }
 
-  // ── Player Total Mass / Center ─────────────────────────────
+  // ── Player Helpers ─────────────────────────────────────────
   getPlayerTotalMass() {
-    let total = 0;
-    for (const c of this.playerCells) total += c.mass;
+    var total = 0;
+    for (var i = 0; i < this.playerCells.length; i++) total += this.playerCells[i].mass;
     return total;
   }
 
   getPlayerCenter() {
     if (this.playerCells.length === 0) return { x: WORLD_W / 2, y: WORLD_H / 2 };
-    let cx = 0, cy = 0, total = 0;
-    for (const c of this.playerCells) {
+    var cx = 0, cy = 0, total = 0;
+    for (var i = 0; i < this.playerCells.length; i++) {
+      var c = this.playerCells[i];
       cx += c.x * c.mass;
       cy += c.y * c.mass;
       total += c.mass;
@@ -692,95 +752,99 @@ class Game {
     return { x: cx / total, y: cy / total };
   }
 
-  // ── Player Movement Direction ──────────────────────────────
-  getPlayerDir() {
-    let dx = 0, dy = 0;
-    if (this.joystick.active) {
+  // Returns { dirX, dirY } normalized direction, magnitude 0-1
+  getInputDir() {
+    var dx = 0, dy = 0;
+
+    // Joystick: dirX/dirY are already normalized, magnitude is 0-1
+    if (this.joystick.active && this.joystick.magnitude > 0.01) {
       dx = this.joystick.dirX * this.joystick.magnitude;
       dy = this.joystick.dirY * this.joystick.magnitude;
     }
-    // Keyboard fallback
+
+    // Keyboard fallback (adds to joystick if both used)
     if (this.keys['ArrowLeft'] || this.keys['KeyA']) dx -= 1;
     if (this.keys['ArrowRight'] || this.keys['KeyD']) dx += 1;
     if (this.keys['ArrowUp'] || this.keys['KeyW']) dy -= 1;
     if (this.keys['ArrowDown'] || this.keys['KeyS']) dy += 1;
-    const mag = Math.sqrt(dx * dx + dy * dy);
-    if (mag > 1) { dx /= mag; dy /= mag; }
-    return { x: dx, y: dy, magnitude: mag > 0 ? Math.min(mag, 1) : 0 };
+
+    // Clamp to unit circle
+    var mag = Math.sqrt(dx * dx + dy * dy);
+    if (mag > 1) { dx /= mag; dy /= mag; mag = 1; }
+
+    return { x: dx, y: dy, mag: mag };
+  }
+
+  // Get normalized direction for split/eject (with fallback to last dir)
+  getAimDir() {
+    var input = this.getInputDir();
+    if (input.mag > 0.1) {
+      var m = input.mag;
+      return { x: input.x / m, y: input.y / m };
+    }
+    // Fallback to first player cell's last direction
+    if (this.playerCells.length > 0) {
+      var c = this.playerCells[0];
+      return { x: c.lastDirX, y: c.lastDirY };
+    }
+    return { x: 0, y: 1 };
   }
 
   // ── Split ──────────────────────────────────────────────────
   split() {
     if (this.state !== 'playing') return;
-    const dir = this.getPlayerDir();
-    const newCells = [];
+    var aim = this.getAimDir();
+    var newCells = [];
 
-    for (const cell of this.playerCells) {
+    for (var i = 0; i < this.playerCells.length; i++) {
+      var cell = this.playerCells[i];
       if (cell.mass < SPLIT_MIN_MASS * 2) continue;
       if (this.playerCells.length + newCells.length >= MAX_PLAYER_CELLS) break;
 
-      const halfMass = cell.mass / 2;
+      var halfMass = cell.mass / 2;
       cell.mass = halfMass;
 
-      // Direction: use joystick dir, or last movement dir
-      let sdx = dir.x;
-      let sdy = dir.y;
-      if (sdx === 0 && sdy === 0) {
-        sdx = cell.lastDirX;
-        sdy = cell.lastDirY;
-      }
-      const smag = Math.sqrt(sdx * sdx + sdy * sdy) || 1;
-      sdx /= smag;
-      sdy /= smag;
-
-      const nc = new Cell(cell.x, cell.y, halfMass, cell.color, cell.name);
-      nc.vx = sdx * SPLIT_SPEED;
-      nc.vy = sdy * SPLIT_SPEED;
+      var nc = new Cell(cell.x, cell.y, halfMass, cell.color, cell.name);
+      nc.vx = aim.x * SPLIT_SPEED;
+      nc.vy = aim.y * SPLIT_SPEED;
       nc.mergeTime = performance.now() + MERGE_DELAY;
-      nc.lastDirX = sdx;
-      nc.lastDirY = sdy;
-
-      // Original cell also gets a merge timer
+      nc.lastDirX = aim.x;
+      nc.lastDirY = aim.y;
       cell.mergeTime = performance.now() + MERGE_DELAY;
 
       newCells.push(nc);
     }
 
-    this.playerCells.push(...newCells);
+    for (var j = 0; j < newCells.length; j++) {
+      this.playerCells.push(newCells[j]);
+    }
   }
 
   // ── Eject Mass ─────────────────────────────────────────────
   eject() {
     if (this.state !== 'playing') return;
-    const dir = this.getPlayerDir();
+    var aim = this.getAimDir();
 
-    for (const cell of this.playerCells) {
+    for (var i = 0; i < this.playerCells.length; i++) {
+      var cell = this.playerCells[i];
       if (cell.mass < EJECT_MASS + 50) continue;
 
       cell.mass -= EJECT_MASS;
 
-      let edx = dir.x;
-      let edy = dir.y;
-      if (edx === 0 && edy === 0) {
-        edx = cell.lastDirX;
-        edy = cell.lastDirY;
-      }
-      const emag = Math.sqrt(edx * edx + edy * edy) || 1;
-      edx /= emag;
-      edy /= emag;
-
-      const ej = new EjectedMass(
-        cell.x + edx * cell.radius,
-        cell.y + edy * cell.radius,
-        edx * EJECT_SPEED,
-        edy * EJECT_SPEED,
-        cell.color,
+      var ej = new EjectedMass(
+        cell.x + aim.x * cell.radius,
+        cell.y + aim.y * cell.radius,
+        aim.x * EJECT_SPEED,
+        aim.y * EJECT_SPEED,
+        cell.color
       );
       this.ejectedMass.push(ej);
     }
   }
 
-  // ── Update ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  //  UPDATE
+  // ═══════════════════════════════════════════════════════════
   update(dt) {
     if (this.state !== 'playing') return;
 
@@ -795,21 +859,21 @@ class Game {
     this.respawnBots();
     this.updateCamera(dt);
     this.updateScore();
-    this.shakeAmount *= 0.9;
+    if (this.shakeAmount > 0.01) this.shakeAmount *= 0.9;
+    else this.shakeAmount = 0;
   }
 
   updatePlayerCells(dt) {
-    const dir = this.getPlayerDir();
+    var input = this.getInputDir();
 
-    for (const cell of this.playerCells) {
-      // Joystick / keyboard movement
-      const speed = cell.speed * (dir.magnitude || 0);
-      const moveX = dir.x * speed;
-      const moveY = dir.y * speed;
+    for (var i = 0; i < this.playerCells.length; i++) {
+      var cell = this.playerCells[i];
 
-      // Smooth movement
-      cell.x += moveX * dt;
-      cell.y += moveY * dt;
+      // Movement: input.x/y already encode direction * magnitude (0-1)
+      // Multiply by cell speed to get final velocity. NO double-magnitude.
+      var speed = cell.speed;
+      cell.x += input.x * speed * dt;
+      cell.y += input.y * speed * dt;
 
       // Split impulse (decaying)
       cell.x += cell.vx * dt;
@@ -817,10 +881,10 @@ class Game {
       cell.vx *= Math.pow(0.005, dt);
       cell.vy *= Math.pow(0.005, dt);
 
-      // Track direction
-      if (dir.x !== 0 || dir.y !== 0) {
-        cell.lastDirX = dir.x;
-        cell.lastDirY = dir.y;
+      // Track direction for split/eject aiming
+      if (input.mag > 0.1) {
+        cell.lastDirX = input.x / input.mag;
+        cell.lastDirY = input.y / input.mag;
       }
 
       // Mass decay
@@ -828,7 +892,7 @@ class Game {
         cell.mass -= cell.mass * DECAY_RATE * dt;
       }
 
-      // Wobble animation
+      // Wobble
       cell.wobblePhase += cell.wobbleSpeed * dt;
 
       cell.clampToWorld();
@@ -836,20 +900,19 @@ class Game {
   }
 
   updateBots(dt) {
-    for (const bot of this.bots) {
-      bot.update(dt, this);
-      bot.cell.wobblePhase += bot.cell.wobbleSpeed * dt;
+    for (var i = 0; i < this.bots.length; i++) {
+      this.bots[i].update(dt, this);
     }
   }
 
   updateEjectedMass(dt) {
-    for (const ej of this.ejectedMass) {
-      ej.update(dt);
+    for (var i = 0; i < this.ejectedMass.length; i++) {
+      this.ejectedMass[i].update(dt);
     }
   }
 
   updateParticles(dt) {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
+    for (var i = this.particles.length - 1; i >= 0; i--) {
       this.particles[i].update(dt);
       if (this.particles[i].life <= 0) {
         this.particles.splice(i, 1);
@@ -859,147 +922,142 @@ class Game {
 
   // ── Collisions ─────────────────────────────────────────────
   checkCollisions() {
+    var i, j, d, overlap, cell, food, bot, ej, a, b;
+
     // Player eats food
-    for (const cell of this.playerCells) {
-      for (let i = this.foods.length - 1; i >= 0; i--) {
-        const food = this.foods[i];
-        const d = dist(cell.x, cell.y, food.x, food.y);
+    for (i = 0; i < this.playerCells.length; i++) {
+      cell = this.playerCells[i];
+      for (j = this.foods.length - 1; j >= 0; j--) {
+        food = this.foods[j];
+        d = dist(cell.x, cell.y, food.x, food.y);
         if (d < cell.radius) {
           cell.mass += food.mass;
-          // Spawn particles
-          for (let p = 0; p < 3; p++) {
-            this.particles.push(new Particle(food.x, food.y, food.color));
-          }
-          this.foods.splice(i, 1);
+          this.spawnParticles(food.x, food.y, food.color, 3);
+          this.foods.splice(j, 1);
         }
       }
     }
 
     // Player eats ejected mass
-    for (const cell of this.playerCells) {
-      for (let i = this.ejectedMass.length - 1; i >= 0; i--) {
-        const ej = this.ejectedMass[i];
-        const d = dist(cell.x, cell.y, ej.x, ej.y);
+    for (i = 0; i < this.playerCells.length; i++) {
+      cell = this.playerCells[i];
+      for (j = this.ejectedMass.length - 1; j >= 0; j--) {
+        ej = this.ejectedMass[j];
+        d = dist(cell.x, cell.y, ej.x, ej.y);
         if (d < cell.radius && cell.mass > ej.mass * EAT_SIZE_RATIO) {
           cell.mass += ej.mass;
-          this.ejectedMass.splice(i, 1);
+          this.ejectedMass.splice(j, 1);
         }
       }
     }
 
     // Player vs Bots
-    for (let bi = this.bots.length - 1; bi >= 0; bi--) {
-      const bot = this.bots[bi];
+    for (i = this.bots.length - 1; i >= 0; i--) {
+      bot = this.bots[i];
       if (!bot.alive) continue;
 
-      for (let ci = this.playerCells.length - 1; ci >= 0; ci--) {
-        const cell = this.playerCells[ci];
-        const d = dist(cell.x, cell.y, bot.cell.x, bot.cell.y);
-        const overlap = cell.radius + bot.cell.radius - d;
+      for (j = this.playerCells.length - 1; j >= 0; j--) {
+        cell = this.playerCells[j];
+        d = dist(cell.x, cell.y, bot.cell.x, bot.cell.y);
+        overlap = cell.radius + bot.cell.radius - d;
 
-        if (overlap > bot.cell.radius * EAT_OVERLAP) {
-          // Player eats bot
-          if (cell.mass > bot.cell.mass * EAT_SIZE_RATIO) {
-            cell.mass += bot.cell.mass;
-            for (let p = 0; p < 8; p++) {
-              this.particles.push(new Particle(bot.cell.x, bot.cell.y, bot.cell.color));
-            }
-            this.shakeAmount = Math.min(8, bot.cell.mass * 0.02);
-            bot.alive = false;
-            break;
-          }
+        // Player eats bot
+        if (overlap > bot.cell.radius * EAT_OVERLAP && cell.mass > bot.cell.mass * EAT_SIZE_RATIO) {
+          cell.mass += bot.cell.mass;
+          this.spawnParticles(bot.cell.x, bot.cell.y, bot.cell.color, 8);
+          this.shakeAmount = Math.min(8, bot.cell.mass * 0.02);
+          bot.alive = false;
+          break;
         }
 
-        if (overlap > cell.radius * EAT_OVERLAP) {
-          // Bot eats player cell
-          if (bot.cell.mass > cell.mass * EAT_SIZE_RATIO) {
-            bot.cell.mass += cell.mass;
-            for (let p = 0; p < 8; p++) {
-              this.particles.push(new Particle(cell.x, cell.y, cell.color));
-            }
-            this.playerCells.splice(ci, 1);
-            if (this.playerCells.length === 0) {
-              this.die();
-              return;
-            }
-            break;
+        // Bot eats player cell
+        if (overlap > cell.radius * EAT_OVERLAP && bot.cell.mass > cell.mass * EAT_SIZE_RATIO) {
+          bot.cell.mass += cell.mass;
+          this.spawnParticles(cell.x, cell.y, cell.color, 8);
+          this.playerCells.splice(j, 1);
+          if (this.playerCells.length === 0) {
+            this.die();
+            return;
           }
+          break;
         }
       }
     }
 
     // Bot eats food
-    for (const bot of this.bots) {
+    for (i = 0; i < this.bots.length; i++) {
+      bot = this.bots[i];
       if (!bot.alive) continue;
-      for (let i = this.foods.length - 1; i >= 0; i--) {
-        const food = this.foods[i];
-        const d = dist(bot.cell.x, bot.cell.y, food.x, food.y);
+      for (j = this.foods.length - 1; j >= 0; j--) {
+        food = this.foods[j];
+        d = dist(bot.cell.x, bot.cell.y, food.x, food.y);
         if (d < bot.cell.radius) {
           bot.cell.mass += food.mass;
-          this.foods.splice(i, 1);
+          this.foods.splice(j, 1);
         }
       }
     }
 
     // Bot eats ejected mass
-    for (const bot of this.bots) {
+    for (i = 0; i < this.bots.length; i++) {
+      bot = this.bots[i];
       if (!bot.alive) continue;
-      for (let i = this.ejectedMass.length - 1; i >= 0; i--) {
-        const ej = this.ejectedMass[i];
-        const d = dist(bot.cell.x, bot.cell.y, ej.x, ej.y);
+      for (j = this.ejectedMass.length - 1; j >= 0; j--) {
+        ej = this.ejectedMass[j];
+        d = dist(bot.cell.x, bot.cell.y, ej.x, ej.y);
         if (d < bot.cell.radius && bot.cell.mass > ej.mass * EAT_SIZE_RATIO) {
           bot.cell.mass += ej.mass;
-          this.ejectedMass.splice(i, 1);
+          this.ejectedMass.splice(j, 1);
         }
       }
     }
 
     // Bot vs Bot
-    for (let i = 0; i < this.bots.length; i++) {
+    for (i = 0; i < this.bots.length; i++) {
       if (!this.bots[i].alive) continue;
-      for (let j = i + 1; j < this.bots.length; j++) {
+      for (j = i + 1; j < this.bots.length; j++) {
         if (!this.bots[j].alive) continue;
-        const a = this.bots[i].cell;
-        const b = this.bots[j].cell;
-        const d = dist(a.x, a.y, b.x, b.y);
-        const overlap = a.radius + b.radius - d;
+        a = this.bots[i].cell;
+        b = this.bots[j].cell;
+        d = dist(a.x, a.y, b.x, b.y);
+        overlap = a.radius + b.radius - d;
 
         if (overlap > Math.min(a.radius, b.radius) * EAT_OVERLAP) {
           if (a.mass > b.mass * EAT_SIZE_RATIO) {
             a.mass += b.mass;
             this.bots[j].alive = false;
-            for (let p = 0; p < 6; p++) {
-              this.particles.push(new Particle(b.x, b.y, b.color));
-            }
+            this.spawnParticles(b.x, b.y, b.color, 6);
           } else if (b.mass > a.mass * EAT_SIZE_RATIO) {
             b.mass += a.mass;
             this.bots[i].alive = false;
-            for (let p = 0; p < 6; p++) {
-              this.particles.push(new Particle(a.x, a.y, a.color));
-            }
+            this.spawnParticles(a.x, a.y, a.color, 6);
           }
         }
       }
     }
   }
 
+  spawnParticles(x, y, color, count) {
+    for (var i = 0; i < count; i++) {
+      this.particles.push(new Particle(x, y, color));
+    }
+  }
+
   // ── Player Cell Separation ─────────────────────────────────
   separatePlayerCells() {
-    for (let i = 0; i < this.playerCells.length; i++) {
-      for (let j = i + 1; j < this.playerCells.length; j++) {
-        const a = this.playerCells[i];
-        const b = this.playerCells[j];
-        const d = dist(a.x, a.y, b.x, b.y);
-        const minDist = a.radius + b.radius;
+    var now = performance.now();
+    for (var i = 0; i < this.playerCells.length; i++) {
+      for (var j = i + 1; j < this.playerCells.length; j++) {
+        var a = this.playerCells[i];
+        var b = this.playerCells[j];
+        var d = dist(a.x, a.y, b.x, b.y);
+        var minDist = a.radius + b.radius;
 
         if (d < minDist && d > 0.1) {
-          const now = performance.now();
-          // Only separate if not ready to merge
           if (a.mergeTime > now || b.mergeTime > now) {
-            const overlap = minDist - d;
-            const dx = (b.x - a.x) / d;
-            const dy = (b.y - a.y) / d;
-            const push = overlap * 0.3;
+            var push = (minDist - d) * 0.3;
+            var dx = (b.x - a.x) / d;
+            var dy = (b.y - a.y) / d;
             a.x -= dx * push;
             a.y -= dy * push;
             b.x += dx * push;
@@ -1014,26 +1072,28 @@ class Game {
 
   // ── Player Cell Merge ──────────────────────────────────────
   checkPlayerMerge() {
-    const now = performance.now();
-    for (let i = 0; i < this.playerCells.length; i++) {
-      for (let j = i + 1; j < this.playerCells.length; j++) {
-        const a = this.playerCells[i];
-        const b = this.playerCells[j];
+    var now = performance.now();
+    for (var i = 0; i < this.playerCells.length; i++) {
+      for (var j = i + 1; j < this.playerCells.length; j++) {
+        var a = this.playerCells[i];
+        var b = this.playerCells[j];
 
         if (a.mergeTime > now || b.mergeTime > now) continue;
 
-        const d = dist(a.x, a.y, b.x, b.y);
+        var d = dist(a.x, a.y, b.x, b.y);
         if (d < Math.max(a.radius, b.radius)) {
-          // Merge: bigger absorbs smaller
           if (a.mass >= b.mass) {
-            const totalMass = a.mass + b.mass;
+            var totalMass = a.mass + b.mass;
             a.x = (a.x * a.mass + b.x * b.mass) / totalMass;
             a.y = (a.y * a.mass + b.y * b.mass) / totalMass;
             a.mass = totalMass;
             this.playerCells.splice(j, 1);
             j--;
           } else {
-            b.mass += a.mass;
+            var totalMass2 = a.mass + b.mass;
+            b.x = (b.x * b.mass + a.x * a.mass) / totalMass2;
+            b.y = (b.y * b.mass + a.y * a.mass) / totalMass2;
+            b.mass = totalMass2;
             this.playerCells.splice(i, 1);
             i--;
             break;
@@ -1051,169 +1111,177 @@ class Game {
   }
 
   respawnBots() {
-    for (const bot of this.bots) {
-      if (!bot.alive) {
-        bot.respawn();
+    for (var i = 0; i < this.bots.length; i++) {
+      if (!this.bots[i].alive) {
+        this.bots[i].respawn();
       }
     }
   }
 
-  // ── Camera ─────────────────────────────────────────────────
   updateCamera(dt) {
-    const center = this.getPlayerCenter();
-    const totalMass = this.getPlayerTotalMass();
+    var center = this.getPlayerCenter();
+    var totalMass = this.getPlayerTotalMass();
     this.camera.follow(center.x, center.y, totalMass);
     this.camera.update(dt);
   }
 
-  // ── Score ──────────────────────────────────────────────────
   updateScore() {
-    const totalMass = this.getPlayerTotalMass();
+    var totalMass = this.getPlayerTotalMass();
     this.score = Math.max(this.score, totalMass);
     this.maxMass = Math.max(this.maxMass, totalMass);
   }
 
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   //  RENDERING
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   render() {
-    const ctx = this.ctx;
-    const cam = this.camera;
-    const w = this.canvasW;
-    const h = this.canvasH;
+    var ctx = this.ctx;
+    var cam = this.camera;
+    var w = this.canvasW;
+    var h = this.canvasH;
 
-    // Screen shake offset
-    const shakeX = (Math.random() - 0.5) * this.shakeAmount;
-    const shakeY = (Math.random() - 0.5) * this.shakeAmount;
+    // Screen shake
+    var shakeX = 0, shakeY = 0;
+    if (this.shakeAmount > 0.1) {
+      shakeX = (Math.random() - 0.5) * this.shakeAmount;
+      shakeY = (Math.random() - 0.5) * this.shakeAmount;
+    }
 
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
-    // ── Background ─────────────────────────────────────────
+    // Background
     ctx.fillStyle = '#F2FBFF';
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(-10, -10, w + 20, h + 20);
 
-    // ── Grid ───────────────────────────────────────────────
+    // Grid
     this.drawGrid(ctx, cam);
 
-    // ── World border ───────────────────────────────────────
+    // World border
     this.drawWorldBorder(ctx, cam);
 
-    // ── Food ───────────────────────────────────────────────
+    // Food
     this.drawFood(ctx, cam);
 
-    // ── Ejected Mass ───────────────────────────────────────
-    for (const ej of this.ejectedMass) {
+    // Ejected mass
+    for (var i = 0; i < this.ejectedMass.length; i++) {
+      var ej = this.ejectedMass[i];
       if (!cam.isVisible(ej.x, ej.y, ej.radius)) continue;
-      const s = cam.worldToScreen(ej.x, ej.y);
-      const sr = ej.radius * cam.zoom;
+      var s = cam.worldToScreen(ej.x, ej.y);
+      var sr = ej.radius * cam.zoom;
       ctx.beginPath();
       ctx.arc(s.x, s.y, sr, 0, Math.PI * 2);
       ctx.fillStyle = ej.color;
       ctx.fill();
     }
 
-    // ── Collect all cells and sort by mass ─────────────────
-    const allCells = [];
-    for (const cell of this.playerCells) {
-      allCells.push({ cell, isPlayer: true });
+    // Collect and sort all cells by mass
+    var allCells = [];
+    for (var i = 0; i < this.playerCells.length; i++) {
+      allCells.push({ cell: this.playerCells[i], isPlayer: true });
     }
-    for (const bot of this.bots) {
-      if (bot.alive) allCells.push({ cell: bot.cell, isPlayer: false });
+    for (var i = 0; i < this.bots.length; i++) {
+      if (this.bots[i].alive) {
+        allCells.push({ cell: this.bots[i].cell, isPlayer: false });
+      }
     }
-    allCells.sort((a, b) => a.cell.mass - b.cell.mass);
+    allCells.sort(function(a, b) { return a.cell.mass - b.cell.mass; });
 
-    // ── Draw Cells ─────────────────────────────────────────
-    for (const { cell, isPlayer } of allCells) {
-      if (!cam.isVisible(cell.x, cell.y, cell.radius * 1.1)) continue;
-      this.drawCell(ctx, cam, cell, isPlayer);
+    // Draw cells
+    for (var i = 0; i < allCells.length; i++) {
+      var entry = allCells[i];
+      if (!cam.isVisible(entry.cell.x, entry.cell.y, entry.cell.radius * 1.1)) continue;
+      this.drawCell(ctx, cam, entry.cell);
     }
 
-    // ── Particles ──────────────────────────────────────────
-    for (const p of this.particles) {
-      if (!cam.isVisible(p.x, p.y, p.radius * 3)) continue;
-      const s = cam.worldToScreen(p.x, p.y);
-      const sr = p.radius * cam.zoom;
+    // Particles
+    for (var i = 0; i < this.particles.length; i++) {
+      var p = this.particles[i];
+      if (!cam.isVisible(p.x, p.y, 10)) continue;
+      var ps = cam.worldToScreen(p.x, p.y);
+      var pr = p.radius * cam.zoom;
       ctx.globalAlpha = p.alpha;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, sr, 0, Math.PI * 2);
+      ctx.arc(ps.x, ps.y, pr, 0, Math.PI * 2);
       ctx.fillStyle = p.color;
       ctx.fill();
-      ctx.globalAlpha = 1;
     }
+    ctx.globalAlpha = 1;
 
     ctx.restore();
 
-    // ── Joystick (screen-space) ────────────────────────────
+    // Joystick (screen-space, outside save/restore)
     this.joystick.draw(ctx);
 
-    // ── HUD ────────────────────────────────────────────────
+    // HUD updates (throttled)
     if (this.state === 'playing') {
-      this.drawHUD();
-      this.drawMinimap();
+      var now = performance.now();
+      if (now - this.lastHudUpdate > 250) {
+        this.lastHudUpdate = now;
+        this.drawHUD();
+      }
+      if (this.settings.showMinimap) {
+        this.drawMinimap();
+      }
     }
   }
 
-  // ── Draw Grid ──────────────────────────────────────────────
+  // ── Grid ───────────────────────────────────────────────────
   drawGrid(ctx, cam) {
-    const bounds = cam.getViewBounds();
-    const startX = Math.floor(bounds.left / GRID_SIZE) * GRID_SIZE;
-    const startY = Math.floor(bounds.top / GRID_SIZE) * GRID_SIZE;
-    const endX = Math.ceil(bounds.right / GRID_SIZE) * GRID_SIZE;
-    const endY = Math.ceil(bounds.bottom / GRID_SIZE) * GRID_SIZE;
+    var bounds = cam.getViewBounds();
+    var startX = Math.floor(bounds.left / GRID_SIZE) * GRID_SIZE;
+    var startY = Math.floor(bounds.top / GRID_SIZE) * GRID_SIZE;
+    var endX = Math.ceil(bounds.right / GRID_SIZE) * GRID_SIZE;
+    var endY = Math.ceil(bounds.bottom / GRID_SIZE) * GRID_SIZE;
 
     ctx.strokeStyle = '#DDE6EC';
     ctx.lineWidth = 1;
     ctx.beginPath();
 
-    for (let x = startX; x <= endX; x += GRID_SIZE) {
+    for (var x = startX; x <= endX; x += GRID_SIZE) {
       if (x < 0 || x > WORLD_W) continue;
-      const s = cam.worldToScreen(x, 0);
-      ctx.moveTo(s.x, 0);
-      ctx.lineTo(s.x, this.canvasH);
+      var sx = cam.worldToScreen(x, 0).x;
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, this.canvasH);
     }
 
-    for (let y = startY; y <= endY; y += GRID_SIZE) {
+    for (var y = startY; y <= endY; y += GRID_SIZE) {
       if (y < 0 || y > WORLD_H) continue;
-      const s = cam.worldToScreen(0, y);
-      ctx.moveTo(0, s.y);
-      ctx.lineTo(this.canvasW, s.y);
+      var sy = cam.worldToScreen(0, y).y;
+      ctx.moveTo(0, sy);
+      ctx.lineTo(this.canvasW, sy);
     }
 
     ctx.stroke();
   }
 
-  // ── Draw World Border ──────────────────────────────────────
+  // ── World Border ───────────────────────────────────────────
   drawWorldBorder(ctx, cam) {
-    const tl = cam.worldToScreen(0, 0);
-    const br = cam.worldToScreen(WORLD_W, WORLD_H);
+    var tl = cam.worldToScreen(0, 0);
+    var br = cam.worldToScreen(WORLD_W, WORLD_H);
 
     ctx.strokeStyle = '#E74C3C';
     ctx.lineWidth = 4;
     ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
 
-    // Dim outside world
+    // Dim outside
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    // Top
-    ctx.fillRect(0, 0, this.canvasW, tl.y);
-    // Bottom
-    ctx.fillRect(0, br.y, this.canvasW, this.canvasH - br.y);
-    // Left
-    ctx.fillRect(0, tl.y, tl.x, br.y - tl.y);
-    // Right
-    ctx.fillRect(br.x, tl.y, this.canvasW - br.x, br.y - tl.y);
+    ctx.fillRect(-10, -10, this.canvasW + 20, tl.y + 10);
+    ctx.fillRect(-10, br.y, this.canvasW + 20, this.canvasH - br.y + 10);
+    ctx.fillRect(-10, tl.y, tl.x + 10, br.y - tl.y);
+    ctx.fillRect(br.x, tl.y, this.canvasW - br.x + 10, br.y - tl.y);
   }
 
-  // ── Draw Food ──────────────────────────────────────────────
+  // ── Food ───────────────────────────────────────────────────
   drawFood(ctx, cam) {
-    const time = performance.now() / 1000;
-    for (const food of this.foods) {
+    var time = performance.now() * 0.001;
+    for (var i = 0; i < this.foods.length; i++) {
+      var food = this.foods[i];
       if (!cam.isVisible(food.x, food.y, 10)) continue;
-      const s = cam.worldToScreen(food.x, food.y);
-      const pulse = 1 + Math.sin(time * 2 + food.pulsePhase) * 0.15;
-      const sr = food.radius * cam.zoom * pulse;
-
-      if (sr < 1) continue; // too small to see
+      var s = cam.worldToScreen(food.x, food.y);
+      var pulse = 1 + Math.sin(time * 2 + food.pulsePhase) * 0.15;
+      var sr = food.radius * cam.zoom * pulse;
+      if (sr < 0.8) continue;
 
       ctx.beginPath();
       ctx.arc(s.x, s.y, sr, 0, Math.PI * 2);
@@ -1222,119 +1290,115 @@ class Game {
     }
   }
 
-  // ── Draw Cell (blob style) ─────────────────────────────────
-  drawCell(ctx, cam, cell, isPlayer) {
-    const s = cam.worldToScreen(cell.x, cell.y);
-    const sr = cell.radius * cam.zoom;
-
-    if (sr < 2) return; // too small
+  // ── Cell (blob style) ─────────────────────────────────────
+  drawCell(ctx, cam, cell) {
+    var s = cam.worldToScreen(cell.x, cell.y);
+    var sr = cell.radius * cam.zoom;
+    if (sr < 2) return;
 
     // Blob wobble
-    const wobbleAmount = Math.min(0.04, 0.01 + (Math.abs(cell.vx) + Math.abs(cell.vy)) * 0.00003);
-    const points = Math.max(20, Math.floor(sr * 0.8));
+    var wobbleAmt = Math.min(0.04, 0.01 + (Math.abs(cell.vx) + Math.abs(cell.vy)) * 0.00003);
+    var points = Math.max(20, Math.floor(sr * 0.8));
 
     ctx.beginPath();
-    for (let i = 0; i <= points; i++) {
-      const angle = (i / points) * Math.PI * 2;
-      const wobble = 1 + Math.sin(angle * 7 + cell.wobblePhase) * wobbleAmount +
-                         Math.sin(angle * 11 - cell.wobblePhase * 1.3) * wobbleAmount * 0.5;
-      const r = sr * wobble;
-      const px = s.x + Math.cos(angle) * r;
-      const py = s.y + Math.sin(angle) * r;
+    for (var i = 0; i <= points; i++) {
+      var angle = (i / points) * Math.PI * 2;
+      var wobble = 1 + Math.sin(angle * 7 + cell.wobblePhase) * wobbleAmt +
+                       Math.sin(angle * 11 - cell.wobblePhase * 1.3) * wobbleAmt * 0.5;
+      var r = sr * wobble;
+      var px = s.x + Math.cos(angle) * r;
+      var py = s.y + Math.sin(angle) * r;
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     }
     ctx.closePath();
 
-    // Fill
     ctx.fillStyle = cell.color;
     ctx.fill();
 
-    // Border
     ctx.strokeStyle = darkenColor(cell.color, 0.2);
     ctx.lineWidth = Math.max(2, sr * 0.06);
     ctx.stroke();
 
-    // Name and mass (only if big enough to read)
+    // Name + mass
     if (sr > 18) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Name
-      const nameSize = Math.max(10, Math.min(sr * 0.38, 40));
-      ctx.font = `bold ${nameSize}px Ubuntu, Arial, sans-serif`;
+      var nameSize = Math.max(10, Math.min(sr * 0.38, 40));
+      ctx.font = 'bold ' + nameSize + 'px Ubuntu, Arial, sans-serif';
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth = Math.max(2, nameSize * 0.12);
       ctx.strokeText(cell.name, s.x, s.y - nameSize * 0.2);
       ctx.fillText(cell.name, s.x, s.y - nameSize * 0.2);
 
-      // Mass
       if (sr > 30) {
-        const massSize = Math.max(8, nameSize * 0.6);
-        ctx.font = `${massSize}px Ubuntu, Arial, sans-serif`;
+        var massSize = Math.max(8, nameSize * 0.6);
+        ctx.font = massSize + 'px Ubuntu, Arial, sans-serif';
         ctx.strokeText(Math.floor(cell.mass), s.x, s.y + nameSize * 0.5);
         ctx.fillText(Math.floor(cell.mass), s.x, s.y + nameSize * 0.5);
       }
     }
   }
 
-  // ── HUD ────────────────────────────────────────────────────
+  // ── HUD (throttled DOM updates) ────────────────────────────
   drawHUD() {
-    const totalMass = this.getPlayerTotalMass();
-    document.getElementById('score').textContent = `Score: ${Math.floor(totalMass).toLocaleString()}`;
+    var totalMass = this.getPlayerTotalMass();
+    document.getElementById('score').textContent = 'Score: ' + Math.floor(totalMass).toLocaleString();
+
+    if (!this.settings.showLeaderboard) return;
 
     // Leaderboard
-    const entries = [];
+    var entries = [];
     entries.push({ name: this.playerName, mass: totalMass, isPlayer: true });
-    for (const bot of this.bots) {
-      if (bot.alive) {
-        entries.push({ name: bot.cell.name, mass: bot.cell.mass, isPlayer: false });
+    for (var i = 0; i < this.bots.length; i++) {
+      if (this.bots[i].alive) {
+        entries.push({ name: this.bots[i].cell.name, mass: this.bots[i].cell.mass, isPlayer: false });
       }
     }
-    entries.sort((a, b) => b.mass - a.mass);
+    entries.sort(function(a, b) { return b.mass - a.mass; });
 
-    const list = document.getElementById('leaderList');
-    list.innerHTML = '';
-    const top = entries.slice(0, 5);
-    for (let i = 0; i < top.length; i++) {
-      const li = document.createElement('li');
-      li.textContent = `${i + 1}. ${top[i].name}`;
-      if (top[i].isPlayer) li.className = 'me';
-      list.appendChild(li);
+    var list = document.getElementById('leaderList');
+    var html = '';
+    var top = entries.slice(0, 5);
+    for (var i = 0; i < top.length; i++) {
+      var cls = top[i].isPlayer ? ' class="me"' : '';
+      html += '<li' + cls + '>' + (i + 1) + '. ' + top[i].name + '</li>';
     }
+    list.innerHTML = html;
   }
 
   // ── Minimap ────────────────────────────────────────────────
   drawMinimap() {
-    const ctx = this.minimapCtx;
-    const size = this.minimapSize;
-    const scale = size / WORLD_W;
+    var ctx = this.minimapCtx;
+    var size = this.minimapSize;
+    if (size <= 0) return;
+    var scale = size / WORLD_W;
 
     ctx.clearRect(0, 0, size, size);
 
-    // Background
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fillRect(0, 0, size, size);
 
-    // Border
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, size, size);
 
-    // Bots (small dots)
-    for (const bot of this.bots) {
-      if (!bot.alive) continue;
+    // Bots
+    for (var i = 0; i < this.bots.length; i++) {
+      if (!this.bots[i].alive) continue;
       ctx.beginPath();
-      ctx.arc(bot.cell.x * scale, bot.cell.y * scale, 2, 0, Math.PI * 2);
+      ctx.arc(this.bots[i].cell.x * scale, this.bots[i].cell.y * scale, 2, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.fill();
     }
 
-    // Player cells (highlighted)
-    for (const cell of this.playerCells) {
+    // Player
+    for (var i = 0; i < this.playerCells.length; i++) {
+      var c = this.playerCells[i];
       ctx.beginPath();
-      ctx.arc(cell.x * scale, cell.y * scale, Math.max(3, cell.radius * scale), 0, Math.PI * 2);
+      ctx.arc(c.x * scale, c.y * scale, Math.max(3, c.radius * scale), 0, Math.PI * 2);
       ctx.fillStyle = this.playerColor;
       ctx.fill();
       ctx.strokeStyle = '#fff';
@@ -1342,166 +1406,231 @@ class Game {
       ctx.stroke();
     }
 
-    // Camera viewport rectangle
-    const bounds = this.camera.getViewBounds();
+    // Viewport rect
+    var bounds = this.camera.getViewBounds();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1;
     ctx.strokeRect(
       Math.max(0, bounds.left * scale),
       Math.max(0, bounds.top * scale),
       (bounds.right - bounds.left) * scale,
-      (bounds.bottom - bounds.top) * scale,
+      (bounds.bottom - bounds.top) * scale
     );
   }
 
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   //  GAME LOOP
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   gameLoop(timestamp) {
-    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
+    var dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
     this.lastTime = timestamp;
-
-    // FPS counter
-    this.fpsCounter++;
-    this.fpsTime += dt;
-    if (this.fpsTime >= 1) {
-      this.fps = this.fpsCounter;
-      this.fpsCounter = 0;
-      this.fpsTime = 0;
-    }
 
     this.update(dt);
     this.render();
 
-    requestAnimationFrame((t) => this.gameLoop(t));
+    requestAnimationFrame(function(t) { game.gameLoop(t); });
   }
 
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   //  INPUT HANDLING
-  // ══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   setupInput() {
-    const canvas = this.canvas;
+    var self = this;
+    var canvas = this.canvas;
 
-    // ── Touch ──────────────────────────────────────────────
-    canvas.addEventListener('touchstart', (e) => {
+    // ── Touch ────────────────────────────────────────────
+    canvas.addEventListener('touchstart', function(e) {
       e.preventDefault();
-      for (const touch of e.changedTouches) {
-        // Check if touching a button (don't start joystick)
-        const el = document.elementFromPoint(touch.clientX, touch.clientY);
-        if (el && (el.id === 'splitBtn' || el.id === 'ejectBtn')) continue;
+      if (self.state !== 'playing') return;
 
-        if (!this.joystick.active) {
-          this.joystick.start(touch.clientX, touch.clientY, touch.identifier);
+      var touches = e.changedTouches;
+      for (var i = 0; i < touches.length; i++) {
+        var touch = touches[i];
+        // Don't start joystick if touching a button
+        var el = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (el && (el.id === 'splitBtn' || el.id === 'ejectBtn' || el.id === 'settingsBtn')) continue;
+
+        if (!self.joystick.active) {
+          self.joystick.start(touch.clientX, touch.clientY, touch.identifier);
         }
       }
     }, { passive: false });
 
-    canvas.addEventListener('touchmove', (e) => {
+    canvas.addEventListener('touchmove', function(e) {
       e.preventDefault();
-      for (const touch of e.changedTouches) {
-        if (this.joystick.active && touch.identifier === this.joystick.touchId) {
-          this.joystick.move(touch.clientX, touch.clientY);
+      var touches = e.changedTouches;
+      for (var i = 0; i < touches.length; i++) {
+        if (self.joystick.active && touches[i].identifier === self.joystick.touchId) {
+          self.joystick.move(touches[i].clientX, touches[i].clientY);
         }
       }
     }, { passive: false });
 
-    canvas.addEventListener('touchend', (e) => {
-      for (const touch of e.changedTouches) {
-        if (this.joystick.active && touch.identifier === this.joystick.touchId) {
-          this.joystick.end();
+    canvas.addEventListener('touchend', function(e) {
+      var touches = e.changedTouches;
+      for (var i = 0; i < touches.length; i++) {
+        if (self.joystick.active && touches[i].identifier === self.joystick.touchId) {
+          self.joystick.end();
         }
       }
     });
 
-    canvas.addEventListener('touchcancel', (e) => {
-      for (const touch of e.changedTouches) {
-        if (this.joystick.active && touch.identifier === this.joystick.touchId) {
-          this.joystick.end();
+    canvas.addEventListener('touchcancel', function(e) {
+      var touches = e.changedTouches;
+      for (var i = 0; i < touches.length; i++) {
+        if (self.joystick.active && touches[i].identifier === self.joystick.touchId) {
+          self.joystick.end();
         }
       }
     });
 
-    // ── Mouse (desktop fallback) ───────────────────────────
-    canvas.addEventListener('mousedown', (e) => {
-      if (!this.joystick.active) {
-        this.joystick.start(e.clientX, e.clientY, -1);
+    // ── Mouse (desktop) ──────────────────────────────────
+    canvas.addEventListener('mousedown', function(e) {
+      if (self.state !== 'playing') return;
+      if (!self.joystick.active) {
+        self.joystick.start(e.clientX, e.clientY, -1);
       }
     });
 
-    canvas.addEventListener('mousemove', (e) => {
-      if (this.joystick.active && this.joystick.touchId === -1) {
-        this.joystick.move(e.clientX, e.clientY);
+    canvas.addEventListener('mousemove', function(e) {
+      if (self.joystick.active && self.joystick.touchId === -1) {
+        self.joystick.move(e.clientX, e.clientY);
       }
     });
 
-    canvas.addEventListener('mouseup', () => {
-      if (this.joystick.active && this.joystick.touchId === -1) {
-        this.joystick.end();
+    canvas.addEventListener('mouseup', function() {
+      if (self.joystick.active && self.joystick.touchId === -1) {
+        self.joystick.end();
       }
     });
 
-    // ── Keyboard (desktop) ─────────────────────────────────
-    window.addEventListener('keydown', (e) => {
-      this.keys[e.code] = true;
-      if (e.code === 'Space') this.split();
-      if (e.code === 'KeyE') this.eject();
+    // ── Keyboard ─────────────────────────────────────────
+    window.addEventListener('keydown', function(e) {
+      self.keys[e.code] = true;
+      if (e.code === 'Space') { e.preventDefault(); self.split(); }
+      if (e.code === 'KeyE') self.eject();
     });
 
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.code] = false;
+    window.addEventListener('keyup', function(e) {
+      self.keys[e.code] = false;
     });
 
-    // ── Resize ─────────────────────────────────────────────
-    window.addEventListener('resize', () => this.resizeCanvas());
-    window.addEventListener('orientationchange', () => {
-      setTimeout(() => this.resizeCanvas(), 100);
+    // ── Resize ───────────────────────────────────────────
+    window.addEventListener('resize', function() { self.resizeCanvas(); });
+    window.addEventListener('orientationchange', function() {
+      setTimeout(function() { self.resizeCanvas(); }, 150);
     });
   }
 
   // ── UI Setup ───────────────────────────────────────────────
   setupUI() {
+    var self = this;
+
     // Play button
-    document.getElementById('playBtn').addEventListener('click', () => {
-      const name = document.getElementById('nameInput').value.trim();
-      this.startGame(name);
+    var playBtn = document.getElementById('playBtn');
+    playBtn.addEventListener('click', function() {
+      self.startGame(document.getElementById('nameInput').value.trim());
+    });
+    playBtn.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      self.startGame(document.getElementById('nameInput').value.trim());
     });
 
-    // Enter key on name input
-    document.getElementById('nameInput').addEventListener('keydown', (e) => {
+    // Name input enter
+    document.getElementById('nameInput').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
-        const name = document.getElementById('nameInput').value.trim();
-        this.startGame(name);
+        self.startGame(document.getElementById('nameInput').value.trim());
       }
     });
 
     // Respawn button
-    document.getElementById('respawnBtn').addEventListener('click', () => {
-      this.startGame(this.playerName);
+    var respawnBtn = document.getElementById('respawnBtn');
+    respawnBtn.addEventListener('click', function() {
+      self.startGame(self.playerName);
+    });
+    respawnBtn.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      self.startGame(self.playerName);
     });
 
     // Split button
-    document.getElementById('splitBtn').addEventListener('touchstart', (e) => {
+    var splitBtn = document.getElementById('splitBtn');
+    splitBtn.addEventListener('touchstart', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      this.split();
+      self.split();
     }, { passive: false });
-
-    document.getElementById('splitBtn').addEventListener('mousedown', (e) => {
+    splitBtn.addEventListener('mousedown', function(e) {
       e.stopPropagation();
-      this.split();
+      self.split();
     });
 
     // Eject button
-    document.getElementById('ejectBtn').addEventListener('touchstart', (e) => {
+    var ejectBtn = document.getElementById('ejectBtn');
+    ejectBtn.addEventListener('touchstart', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      this.eject();
+      self.eject();
     }, { passive: false });
-
-    document.getElementById('ejectBtn').addEventListener('mousedown', (e) => {
+    ejectBtn.addEventListener('mousedown', function(e) {
       e.stopPropagation();
-      this.eject();
+      self.eject();
     });
+
+    // ── Settings ─────────────────────────────────────────
+    document.getElementById('settingsBtn').addEventListener('click', function() {
+      self.openSettings();
+    });
+    document.getElementById('settingsBtn').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      self.openSettings();
+    });
+
+    document.getElementById('settingsDone').addEventListener('click', function() {
+      self.closeSettings();
+    });
+    document.getElementById('settingsDone').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      self.closeSettings();
+    });
+
+    // Setting toggles
+    document.getElementById('toggleLeftHand').addEventListener('change', function() {
+      self.settings.leftHanded = this.checked;
+      self.settings.save();
+      self.settings.apply();
+    });
+
+    document.getElementById('toggleMinimap').addEventListener('change', function() {
+      self.settings.showMinimap = this.checked;
+      self.settings.save();
+      self.settings.apply();
+    });
+
+    document.getElementById('toggleLeaderboard').addEventListener('change', function() {
+      self.settings.showLeaderboard = this.checked;
+      self.settings.save();
+      self.settings.apply();
+    });
+
+    document.getElementById('selectBtnSize').addEventListener('change', function() {
+      self.settings.buttonSize = parseInt(this.value) || 64;
+      self.settings.save();
+      self.settings.apply();
+    });
+  }
+
+  openSettings() {
+    this.settings.apply(); // sync UI
+    document.getElementById('settingsOverlay').style.display = 'flex';
+    this.prevState = this.state;
+    if (this.state === 'playing') this.state = 'settings';
+  }
+
+  closeSettings() {
+    document.getElementById('settingsOverlay').style.display = 'none';
+    if (this.state === 'settings') this.state = this.prevState || 'playing';
+    this.resizeCanvas();
   }
 }
 
@@ -1509,6 +1638,7 @@ class Game {
 // ═════════════════════════════════════════════════════════════
 //  INITIALIZATION
 // ═════════════════════════════════════════════════════════════
-window.addEventListener('load', () => {
-  new Game();
+var game;
+window.addEventListener('load', function() {
+  game = new Game();
 });
