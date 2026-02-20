@@ -244,6 +244,13 @@ class Bot {
         break;
     }
 
+    // Boundary avoidance — steer away from edges
+    const margin = 150;
+    if (this.cell.x < margin) dirX += 0.5;
+    if (this.cell.x > WORLD_W - margin) dirX -= 0.5;
+    if (this.cell.y < margin) dirY += 0.5;
+    if (this.cell.y > WORLD_H - margin) dirY -= 0.5;
+
     // Apply movement
     const speed = this.cell.speed;
     this.cell.x += dirX * speed * dt;
@@ -253,13 +260,6 @@ class Bot {
       this.cell.lastDirX = dirX;
       this.cell.lastDirY = dirY;
     }
-
-    // Boundary avoidance — steer away from edges
-    const margin = 150;
-    if (this.cell.x < margin) dirX += 0.5;
-    if (this.cell.x > WORLD_W - margin) dirX -= 0.5;
-    if (this.cell.y < margin) dirY += 0.5;
-    if (this.cell.y > WORLD_H - margin) dirY -= 0.5;
 
     // Clamp to world
     this.cell.clampToWorld();
@@ -361,8 +361,9 @@ class Bot {
 
 // ── Camera ───────────────────────────────────────────────────
 class Camera {
-  constructor(canvas) {
-    this.canvas = canvas;
+  constructor(viewW, viewH) {
+    this.viewW = viewW || 300;
+    this.viewH = viewH || 150;
     this.x = WORLD_W / 2;
     this.y = WORLD_H / 2;
     this.zoom = 1;
@@ -388,22 +389,22 @@ class Camera {
 
   worldToScreen(wx, wy) {
     return {
-      x: (wx - this.x) * this.zoom + this.canvas.width / 2,
-      y: (wy - this.y) * this.zoom + this.canvas.height / 2,
+      x: (wx - this.x) * this.zoom + this.viewW / 2,
+      y: (wy - this.y) * this.zoom + this.viewH / 2,
     };
   }
 
   screenToWorld(sx, sy) {
     return {
-      x: (sx - this.canvas.width / 2) / this.zoom + this.x,
-      y: (sy - this.canvas.height / 2) / this.zoom + this.y,
+      x: (sx - this.viewW / 2) / this.zoom + this.x,
+      y: (sy - this.viewH / 2) / this.zoom + this.y,
     };
   }
 
   // Visible bounds in world coords
   getViewBounds() {
-    const hw = (this.canvas.width / 2) / this.zoom;
-    const hh = (this.canvas.height / 2) / this.zoom;
+    const hw = (this.viewW / 2) / this.zoom;
+    const hh = (this.viewH / 2) / this.zoom;
     return {
       left: this.x - hw,
       right: this.x + hw,
@@ -554,7 +555,7 @@ class Game {
     this.particles = [];
 
     // Systems
-    this.camera = new Camera(this.canvas);
+    this.camera = new Camera(window.innerWidth, window.innerHeight);
     this.joystick = new Joystick();
 
     // Stats
@@ -594,9 +595,15 @@ class Game {
     this.canvasW = window.innerWidth;
     this.canvasH = window.innerHeight;
 
+    // Update camera viewport to logical dimensions
+    if (this.camera) {
+      this.camera.viewW = this.canvasW;
+      this.camera.viewH = this.canvasH;
+    }
+
     // Minimap
     const mm = this.minimapCanvas;
-    const mmSize = parseInt(getComputedStyle(mm).width);
+    const mmSize = parseInt(getComputedStyle(mm).width) || 120;
     mm.width = mmSize * dpr;
     mm.height = mmSize * dpr;
     this.minimapCtx.scale(dpr, dpr);
@@ -652,6 +659,9 @@ class Game {
     document.getElementById('hud').style.display = 'block';
     document.getElementById('startScreen').style.display = 'none';
     document.getElementById('deathScreen').style.display = 'none';
+
+    // Re-measure minimap now that HUD is visible
+    this.resizeCanvas();
   }
 
   die() {
@@ -1016,8 +1026,10 @@ class Game {
         if (d < Math.max(a.radius, b.radius)) {
           // Merge: bigger absorbs smaller
           if (a.mass >= b.mass) {
-            a.mass += b.mass;
-            a.x = (a.x * a.mass + b.x * b.mass) / (a.mass + b.mass) || a.x;
+            const totalMass = a.mass + b.mass;
+            a.x = (a.x * a.mass + b.x * b.mass) / totalMass;
+            a.y = (a.y * a.mass + b.y * b.mass) / totalMass;
+            a.mass = totalMass;
             this.playerCells.splice(j, 1);
             j--;
           } else {
