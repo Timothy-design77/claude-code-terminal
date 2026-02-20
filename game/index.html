@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>agar.io</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #111;
+      font-family: 'Ubuntu', 'Segoe UI', Arial, sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    /* ── Start Screen ── */
+    #startScreen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 100;
+    }
+
+    .start-panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px 28px;
+      width: min(340px, 88vw);
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .start-panel h1 {
+      font-size: 48px;
+      font-weight: 900;
+      color: #333;
+      margin-bottom: 4px;
+      letter-spacing: -1px;
+    }
+
+    .start-panel .subtitle {
+      font-size: 13px;
+      color: #999;
+      margin-bottom: 24px;
+    }
+
+    .start-panel input {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 17px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.2s;
+      text-align: center;
+    }
+
+    .start-panel input:focus {
+      border-color: #4ECDC4;
+    }
+
+    .start-panel button {
+      width: 100%;
+      padding: 16px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      background: #4ECDC4;
+      border: none;
+      border-radius: 8px;
+      margin-top: 16px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .start-panel button:active {
+      background: #3dbdb5;
+      transform: scale(0.97);
+    }
+
+    /* ── Death Screen ── */
+    #deathScreen {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 100;
+    }
+
+    .death-panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px 28px;
+      width: min(320px, 88vw);
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .death-panel h2 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #E74C3C;
+      margin-bottom: 16px;
+    }
+
+    .death-panel .stat {
+      font-size: 16px;
+      color: #555;
+      margin-bottom: 8px;
+    }
+
+    .death-panel .stat span {
+      font-weight: 700;
+      color: #333;
+    }
+
+    .death-panel button {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      background: #4ECDC4;
+      border: none;
+      border-radius: 8px;
+      margin-top: 20px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .death-panel button:active {
+      background: #3dbdb5;
+      transform: scale(0.97);
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+    }
+
+    #score {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+
+    #leaderboard {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 8px;
+      padding: 10px 14px;
+      min-width: 130px;
+    }
+
+    #leaderboard h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      opacity: 0.8;
+    }
+
+    #leaderboard ol {
+      list-style: none;
+      padding: 0;
+    }
+
+    #leaderboard li {
+      font-size: 13px;
+      color: #ccc;
+      padding: 2px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 140px;
+    }
+
+    #leaderboard li.me {
+      color: #4ECDC4;
+      font-weight: 700;
+    }
+
+    /* ── Minimap ── */
+    #minimapContainer {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+    }
+
+    #minimap {
+      width: 120px;
+      height: 120px;
+      border-radius: 6px;
+      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(0,0,0,0.45);
+    }
+
+    /* ── Action Buttons ── */
+    .action-btn {
+      position: absolute;
+      pointer-events: auto;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.4);
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      transition: transform 0.1s, background 0.1s;
+    }
+
+    .action-btn:active {
+      transform: scale(0.9);
+      background: rgba(255,255,255,0.3);
+    }
+
+    #splitBtn {
+      bottom: 90px;
+      right: 18px;
+    }
+
+    #ejectBtn {
+      bottom: 18px;
+      right: 18px;
+    }
+
+    /* ── Landscape tweaks ── */
+    @media (orientation: landscape) {
+      #minimap {
+        width: 100px;
+        height: 100px;
+      }
+
+      #splitBtn {
+        bottom: 80px;
+        right: 14px;
+      }
+
+      #ejectBtn {
+        bottom: 14px;
+        right: 14px;
+      }
+
+      #leaderboard {
+        top: 6px;
+        right: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- HUD Overlay -->
+  <div id="hud">
+    <div id="score">Score: 0</div>
+
+    <div id="leaderboard">
+      <h3>Leaderboard</h3>
+      <ol id="leaderList"></ol>
+    </div>
+
+    <div id="minimapContainer">
+      <canvas id="minimap"></canvas>
+    </div>
+
+    <button class="action-btn" id="splitBtn">Split</button>
+    <button class="action-btn" id="ejectBtn">Eject</button>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="startScreen">
+    <div class="start-panel">
+      <h1>agar.io</h1>
+      <p class="subtitle">Mobile Clone</p>
+      <input type="text" id="nameInput" placeholder="Nickname" maxlength="15" autocomplete="off">
+      <button id="playBtn">Play</button>
+    </div>
+  </div>
+
+  <!-- Death Screen -->
+  <div id="deathScreen">
+    <div class="death-panel">
+      <h2>Game Over</h2>
+      <p class="stat">Score: <span id="finalScore">0</span></p>
+      <p class="stat">Max Mass: <span id="finalMass">0</span></p>
+      <p class="stat">Time Alive: <span id="finalTime">0s</span></p>
+      <button id="respawnBtn">Play Again</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
