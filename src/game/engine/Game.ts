@@ -13,11 +13,11 @@ import { ParticleSystem } from '../rendering/ParticleSystem';
 import { OrbitRenderer } from '../rendering/OrbitRenderer';
 import { HUD } from '../ui/HUD';
 import { Minimap } from '../ui/Minimap';
-import { createSolarSystem, SolarSystemData } from '../systems/SolarSystem';
+import { TouchControls } from '../ui/TouchControls';
+import { createSolarSystem } from '../systems/SolarSystem';
 import {
   PHYSICS_DT,
   CameraMode,
-  TimeWarpLevel,
   TIME_WARP_LEVELS,
 } from '../types';
 
@@ -41,6 +41,7 @@ export class Game {
   // UI
   private hud!: HUD;
   private minimap!: Minimap;
+  private touchControls!: TouchControls;
 
   // State
   private timeWarpIndex: number = 0;
@@ -88,10 +89,17 @@ export class Game {
     this.particles = new ParticleSystem();
     this.orbitRenderer = new OrbitRenderer();
 
-    // Init UI
-    this.hud = new HUD(width, height);
-    this.minimap = new Minimap(180);
+    // Init UI — scale minimap for mobile
+    const isMobile = this.input.isMobile;
+    const minimapSize = isMobile ? Math.min(120, Math.floor(width * 0.28)) : 180;
+
+    this.hud = new HUD(width, height, isMobile);
+    this.minimap = new Minimap(minimapSize);
     this.minimap.setPosition(width, height);
+
+    // Touch controls (only active on mobile)
+    this.touchControls = new TouchControls(this.input, width, height);
+    this.touchControls.visible = isMobile;
 
     // Add to stage in order (back to front)
     this.app.stage.addChild(this.starfield.container);
@@ -101,6 +109,7 @@ export class Game {
     this.app.stage.addChild(this.shipRenderer.container);
     this.app.stage.addChild(this.hud.container);
     this.app.stage.addChild(this.minimap.container);
+    this.app.stage.addChild(this.touchControls.container);
 
     // Camera follows ship
     this.camera.setFollowTarget(this.ship);
@@ -118,6 +127,7 @@ export class Game {
     this.running = false;
     window.removeEventListener('resize', this.onResize);
     this.input.destroy();
+    this.touchControls.destroy();
     this.app.destroy(true, { children: true });
   }
 
@@ -131,13 +141,14 @@ export class Game {
     this.camera.setScreenSize(width, height);
     this.hud.resize(width, height);
     this.minimap.resize(width, height);
+    this.touchControls.resize(width, height);
   };
 
   private gameLoop = () => {
     if (!this.running) return;
 
     const now = performance.now();
-    const frameTime = Math.min((now - this.lastTime) / 1000, 0.1); // Cap at 100ms
+    const frameTime = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
 
     const timeWarp = TIME_WARP_LEVELS[this.timeWarpIndex];
@@ -157,7 +168,7 @@ export class Game {
   };
 
   private processInput(dt: number) {
-    // Ship controls
+    // Ship controls (keyboard keys are simulated by touch controls too)
     if (this.input.isKeyDown('w') || this.input.isKeyDown('arrowup')) {
       this.ship.isThrusting = true;
     } else {
@@ -181,10 +192,13 @@ export class Game {
       this.timeWarpIndex = Math.max(this.timeWarpIndex - 1, 0);
     }
 
-    // Camera zoom
+    // Camera zoom — mouse wheel + pinch-to-zoom + touch zoom buttons
     const scroll = this.input.getScrollDelta();
-    if (scroll !== 0) {
-      this.camera.adjustZoom(scroll);
+    const pinch = this.input.pinchDelta;
+    const touchZoom = this.touchControls.getZoomDelta();
+    const totalZoom = scroll + pinch + touchZoom;
+    if (totalZoom !== 0) {
+      this.camera.adjustZoom(totalZoom);
     }
 
     // Camera mode toggle
@@ -226,17 +240,12 @@ export class Game {
   }
 
   private updatePhysics(dt: number) {
-    // Update celestial body physics
     this.world.update(dt);
 
-    // Apply gravity to ship
     const gravity = this.world.calculateGravityAcceleration(this.ship.position);
-
-    // Apply thrust
     const thrust = this.ship.applyThrust(dt);
     const totalAcc = gravity.add(thrust);
 
-    // Velocity Verlet for ship
     this.ship.position.x += this.ship.velocity.x * dt + 0.5 * this.ship.acceleration.x * dt * dt;
     this.ship.position.y += this.ship.velocity.y * dt + 0.5 * this.ship.acceleration.y * dt * dt;
 
@@ -250,7 +259,6 @@ export class Game {
     this.ship.velocity.y += 0.5 * (totalAcc.y + newTotalAcc.y) * dt;
     this.ship.acceleration = newTotalAcc;
 
-    // Emit thrust particles
     if (this.ship.isThrusting && this.ship.fuel > 0) {
       const exhaustDir = Vector2.fromAngle(this.ship.rotation + Math.PI);
       this.particles.emit(
@@ -267,7 +275,6 @@ export class Game {
       );
     }
 
-    // Check ship collision with bodies
     for (const body of this.world.bodies) {
       if (this.ship.position.distanceTo(body.position) < body.radius + 5) {
         this.resetShip();
@@ -275,10 +282,8 @@ export class Game {
       }
     }
 
-    // Update particles
     this.particles.update(dt);
 
-    // Update orbit prediction every few frames
     this.orbitPredictionTimer += dt;
     if (this.orbitPredictionTimer >= 0.1) {
       this.orbitPredictionTimer = 0;
@@ -293,13 +298,10 @@ export class Game {
   private render() {
     this.camera.update();
 
-    // Render layers
     this.starfield.render(this.camera);
     this.orbitRenderer.render(this.orbitPrediction, this.camera);
 
-    // Render planet orbital paths (faint circles)
-    const allBodies = this.world.bodies;
-    const nonFixedBodies = allBodies.filter(b => !b.fixed);
+    const nonFixedBodies = this.world.bodies.filter(b => !b.fixed);
     this.orbitRenderer.renderBodyOrbits(
       nonFixedBodies as any,
       this.star.position as any,
@@ -310,15 +312,14 @@ export class Game {
     this.particles.render(this.camera);
     this.shipRenderer.render(this.ship, this.camera);
 
-    // Update UI
     const dominantBody = this.world.findDominantBody(this.ship.position);
     this.hud.update(this.ship, dominantBody, TIME_WARP_LEVELS[this.timeWarpIndex]);
     this.minimap.render(this.world.bodies, this.ship);
+    this.touchControls.render();
   }
 
   private resetShip() {
     const data = createSolarSystem();
-    // Reset ship state from fresh solar system
     this.ship.position = data.ship.position.clone();
     this.ship.velocity = data.ship.velocity.clone();
     this.ship.rotation = data.ship.rotation;
