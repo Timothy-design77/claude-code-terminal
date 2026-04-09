@@ -20,15 +20,18 @@ export class PhysicsWorld {
       const dx = body.position.x - position.x;
       const dy = body.position.y - position.y;
       const distSq = dx * dx + dy * dy;
-      const dist = Math.sqrt(distSq);
 
-      // Softening to prevent singularity at very close range
-      const softening = body.radius * 0.5;
+      // Skip bodies at essentially the same position to prevent NaN
+      if (distSq < 0.01) continue;
+
+      // Softening to prevent extreme forces at very close range
+      const softening = Math.max(body.radius * 0.5, 1);
       const effectiveDistSq = distSq + softening * softening;
+      const effectiveDist = Math.sqrt(effectiveDistSq);
 
       const force = G * body.mass / effectiveDistSq;
-      ax += (dx / dist) * force;
-      ay += (dy / dist) * force;
+      ax += (dx / effectiveDist) * force;
+      ay += (dy / effectiveDist) * force;
     }
 
     return new Vector2(ax, ay);
