@@ -5,8 +5,8 @@ import { CelestialBody } from './CelestialBody';
 
 export interface OrbitPrediction {
   points: Vector2[];
-  isEscape: boolean;  // Trajectory escapes the dominant body's influence
-  willCollide: boolean;  // Trajectory intersects a body
+  isEscape: boolean;
+  willCollide: boolean;
   collisionBody?: CelestialBody;
 }
 
@@ -38,7 +38,7 @@ export class OrbitalMechanics {
     const startDist = startDominant ? pos.distanceTo(startDominant.position) : Infinity;
 
     for (let i = 0; i < steps; i++) {
-      // Velocity Verlet step
+      // Velocity Verlet step — gravity only from celestial bodies (no self-gravity)
       const acc = world.calculateGravityAcceleration(pos);
       pos = new Vector2(
         pos.x + vel.x * dt + 0.5 * acc.x * dt * dt,
@@ -49,6 +49,9 @@ export class OrbitalMechanics {
         vel.x + 0.5 * (acc.x + newAcc.x) * dt,
         vel.y + 0.5 * (acc.y + newAcc.y) * dt
       );
+
+      // NaN guard — abort prediction if physics diverged
+      if (isNaN(pos.x) || isNaN(pos.y)) break;
 
       points.push(pos.clone());
 
@@ -61,7 +64,7 @@ export class OrbitalMechanics {
         }
       }
 
-      // Check if escaping (distance > 3x start distance from dominant body)
+      // Check if escaping
       if (startDominant && pos.distanceTo(startDominant.position) > startDist * 3) {
         isEscape = true;
       }
@@ -82,40 +85,31 @@ export class OrbitalMechanics {
     const v = relVel.magnitude();
     const mu = G * body.mass;
 
-    // Specific orbital energy
+    // Guard against degenerate cases
+    if (r < 0.01 || mu < 0.01) return null;
+
     const energy = 0.5 * v * v - mu / r;
 
-    // If energy >= 0, hyperbolic/parabolic (escape) trajectory
+    // Escape trajectory
     if (energy >= 0) return null;
 
-    // Semi-major axis
     const a = -mu / (2 * energy);
-
-    // Angular momentum (scalar in 2D)
     const h = relPos.cross(relVel);
 
-    // Eccentricity
     const eSq = 1 + (2 * energy * h * h) / (mu * mu);
     const e = Math.sqrt(Math.max(0, eSq));
 
-    // Apoapsis and periapsis
     const periapsis = a * (1 - e);
     const apoapsis = a * (1 + e);
+    const period = 2 * Math.PI * Math.sqrt(Math.abs(a * a * a) / mu);
 
-    // Orbital period (Kepler's third law)
-    const period = 2 * Math.PI * Math.sqrt((a * a * a) / mu);
+    // Guard against unreasonable values
+    if (!isFinite(period) || !isFinite(apoapsis)) return null;
 
-    return {
-      apoapsis,
-      periapsis,
-      eccentricity: e,
-      period,
-      semiMajorAxis: a,
-    };
+    return { apoapsis, periapsis, eccentricity: e, period, semiMajorAxis: a };
   }
 
-  // Calculate circular orbit velocity at a given distance from a body
   static circularOrbitVelocity(body: CelestialBody, distance: number): number {
-    return Math.sqrt(G * body.mass / distance);
+    return Math.sqrt(G * body.mass / Math.max(distance, 1));
   }
 }

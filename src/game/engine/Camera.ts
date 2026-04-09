@@ -7,8 +7,8 @@ export class Camera {
   targetZoom: number = 1;
   mode: CameraMode = CameraMode.FollowShip;
   followTarget: { position: Vector2 } | null = null;
-  private screenWidth: number = 0;
-  private screenHeight: number = 0;
+  screenWidth: number = 0;
+  screenHeight: number = 0;
 
   readonly minZoom = 0.001;
   readonly maxZoom = 5;

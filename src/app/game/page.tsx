@@ -15,12 +15,12 @@ export default function GamePage() {
 
     if (metaViewport) {
       metaViewport.content =
-        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
     } else {
       metaViewport = document.createElement("meta");
       metaViewport.name = "viewport";
       metaViewport.content =
-        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
       document.head.appendChild(metaViewport);
     }
 

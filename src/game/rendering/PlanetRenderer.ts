@@ -21,8 +21,8 @@ export class PlanetRenderer {
 
       // Skip if off-screen (with generous margin)
       if (
-        screenPos.x < -screenRadius * 2 || screenPos.x > camera['screenWidth'] + screenRadius * 2 ||
-        screenPos.y < -screenRadius * 2 || screenPos.y > camera['screenHeight'] + screenRadius * 2
+        screenPos.x < -screenRadius * 2 || screenPos.x > camera.screenWidth + screenRadius * 2 ||
+        screenPos.y < -screenRadius * 2 || screenPos.y > camera.screenHeight + screenRadius * 2
       ) {
         continue;
       }

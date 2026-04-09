@@ -99,14 +99,15 @@ export class Game {
 
     // Touch controls (only active on mobile)
     this.touchControls = new TouchControls(this.input, width, height);
+    this.touchControls.setCanvas(this.app.canvas as HTMLCanvasElement);
     this.touchControls.visible = isMobile;
 
     // Add to stage in order (back to front)
     this.app.stage.addChild(this.starfield.container);
     this.app.stage.addChild(this.orbitRenderer.container);
     this.app.stage.addChild(this.planetRenderer.container);
-    this.app.stage.addChild(this.particles.container);
     this.app.stage.addChild(this.shipRenderer.container);
+    this.app.stage.addChild(this.particles.container);
     this.app.stage.addChild(this.hud.container);
     this.app.stage.addChild(this.minimap.container);
     this.app.stage.addChild(this.touchControls.container);
@@ -258,6 +259,13 @@ export class Game {
     this.ship.velocity.x += 0.5 * (totalAcc.x + newTotalAcc.x) * dt;
     this.ship.velocity.y += 0.5 * (totalAcc.y + newTotalAcc.y) * dt;
     this.ship.acceleration = newTotalAcc;
+
+    // NaN guard — reset if physics diverged
+    if (isNaN(this.ship.position.x) || isNaN(this.ship.position.y) ||
+        isNaN(this.ship.velocity.x) || isNaN(this.ship.velocity.y)) {
+      this.resetShip();
+      return;
+    }
 
     if (this.ship.isThrusting && this.ship.fuel > 0) {
       const exhaustDir = Vector2.fromAngle(this.ship.rotation + Math.PI);
