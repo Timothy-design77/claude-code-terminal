@@ -2,20 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Space Flight Simulator</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#050510;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;position:fixed;width:100%;height:100%}
-#game{width:100vw;height:100dvh;cursor:crosshair}
-</style>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#050510;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;position:fixed;width:100%;height:100%}#game{width:100vw;height:100dvh;cursor:crosshair}</style>
 </head>
 <body>
 <div id="game"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/8.6.6/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
 <script>
 "use strict";
-// === Vector2 ===
 class Vector2{
 constructor(x=0,y=0){this.x=x;this.y=y}
 static zero(){return new Vector2(0,0)}
@@ -26,7 +21,7 @@ sub(v){return new Vector2(this.x-v.x,this.y-v.y)}
 scale(s){return new Vector2(this.x*s,this.y*s)}
 magnitude(){return Math.sqrt(this.x*this.x+this.y*this.y)}
 magnitudeSq(){return this.x*this.x+this.y*this.y}
-normalize(){const m=this.magnitude();return m===0?Vector2.zero():new Vector2(this.x/m,this.y/m)}
+normalize(){const m=this.magnitude();return m<0.0001?Vector2.zero():new Vector2(this.x/m,this.y/m)}
 cross(v){return this.x*v.y-this.y*v.x}
 distanceTo(v){return this.sub(v).magnitude()}
 distanceToSq(v){return this.sub(v).magnitudeSq()}
@@ -35,351 +30,223 @@ lerp(v,t){return new Vector2(this.x+(v.x-this.x)*t,this.y+(v.y-this.y)*t)}
 addMut(v){this.x+=v.x;this.y+=v.y;return this}
 scaleMut(s){this.x*=s;this.y*=s;return this}
 }
-
-// === Constants ===
 const G=6.674e3,PHYSICS_DT=1/60,TIME_WARP_LEVELS=[1,5,10,50];
-
-// === CelestialBody ===
-class CelestialBody{
-constructor(c){this.name=c.name;this.mass=c.mass;this.radius=c.radius;this.position=c.position.clone();this.velocity=c.velocity.clone();this.color=c.color;this.atmosphereColor=c.atmosphereColor||c.color;this.atmosphereRadius=c.atmosphereRadius||c.radius*1.15;this.fixed=c.fixed||false;this.acceleration=Vector2.zero()}
-}
-
-// === PhysicsWorld (FIXED: no division by zero, consistent softening) ===
+class CelestialBody{constructor(c){this.name=c.name;this.mass=c.mass;this.radius=c.radius;this.position=c.position.clone();this.velocity=c.velocity.clone();this.color=c.color;this.atmosphereColor=c.atmosphereColor||0;this.atmosphereRadius=c.atmosphereRadius||0;this.fixed=c.fixed||false;this.acceleration=Vector2.zero()}}
 class PhysicsWorld{
 constructor(){this.bodies=[]}
 addBody(b){this.bodies.push(b)}
-calculateGravityAcceleration(pos,exclude){
-  let ax=0,ay=0;
-  for(const body of this.bodies){
-    if(body===exclude)continue;
-    const dx=body.position.x-pos.x,dy=body.position.y-pos.y;
-    const distSq=dx*dx+dy*dy;
-    if(distSq<0.01)continue;
-    const soft=Math.max(body.radius*0.5,1);
-    const effDistSq=distSq+soft*soft;
-    const effDist=Math.sqrt(effDistSq);
-    const force=G*body.mass/effDistSq;
-    ax+=(dx/effDist)*force;ay+=(dy/effDist)*force;
-  }
-  return new Vector2(ax,ay);
-}
-findDominantBody(pos){
-  let s=null,sf=0;
-  for(const b of this.bodies){const d=pos.distanceToSq(b.position);const f=G*b.mass/Math.max(d,1);if(f>sf){sf=f;s=b}}
-  return s;
-}
-update(dt){
-  for(const b of this.bodies){if(b.fixed){b.acceleration=Vector2.zero();continue}b.acceleration=this.calculateGravityAcceleration(b.position,b)}
-  for(const b of this.bodies){if(b.fixed)continue;b.position.x+=b.velocity.x*dt+0.5*b.acceleration.x*dt*dt;b.position.y+=b.velocity.y*dt+0.5*b.acceleration.y*dt*dt}
-  const na=[];for(const b of this.bodies){if(b.fixed){na.push(Vector2.zero());continue}na.push(this.calculateGravityAcceleration(b.position,b))}
-  for(let i=0;i<this.bodies.length;i++){const b=this.bodies[i];if(b.fixed)continue;b.velocity.x+=0.5*(b.acceleration.x+na[i].x)*dt;b.velocity.y+=0.5*(b.acceleration.y+na[i].y)*dt;b.acceleration=na[i]}
-}}
-
-// === OrbitalMechanics (FIXED: NaN guards, safe division) ===
+calcGrav(pos,exclude){let ax=0,ay=0;for(const b of this.bodies){if(b===exclude)continue;const dx=b.position.x-pos.x,dy=b.position.y-pos.y,dSq=dx*dx+dy*dy;if(dSq<0.01)continue;const s=Math.max(b.radius*0.5,1),eSq=dSq+s*s,eD=Math.sqrt(eSq),f=G*b.mass/eSq;ax+=(dx/eD)*f;ay+=(dy/eD)*f}return new Vector2(ax,ay)}
+findDom(pos){let s=null,sf=0;for(const b of this.bodies){const d=pos.distanceToSq(b.position),f=G*b.mass/Math.max(d,1);if(f>sf){sf=f;s=b}}return s}
+update(dt){for(const b of this.bodies){if(b.fixed){b.acceleration=Vector2.zero();continue}b.acceleration=this.calcGrav(b.position,b)}
+for(const b of this.bodies){if(b.fixed)continue;b.position.x+=b.velocity.x*dt+.5*b.acceleration.x*dt*dt;b.position.y+=b.velocity.y*dt+.5*b.acceleration.y*dt*dt}
+const na=[];for(const b of this.bodies){if(b.fixed){na.push(Vector2.zero());continue}na.push(this.calcGrav(b.position,b))}
+for(let i=0;i<this.bodies.length;i++){const b=this.bodies[i];if(b.fixed)continue;b.velocity.x+=.5*(b.acceleration.x+na[i].x)*dt;b.velocity.y+=.5*(b.acceleration.y+na[i].y)*dt;b.acceleration=na[i]}}}
 class OrbitalMechanics{
-static predictOrbit(position,velocity,world,steps=600,dt=0.5){
-  const points=[];let pos=position.clone(),vel=velocity.clone(),isEscape=false,willCollide=false,collisionBody;
-  const sd=world.findDominantBody(pos),sDist=sd?pos.distanceTo(sd.position):Infinity;
-  for(let i=0;i<steps;i++){
-    const acc=world.calculateGravityAcceleration(pos);
-    pos=new Vector2(pos.x+vel.x*dt+0.5*acc.x*dt*dt,pos.y+vel.y*dt+0.5*acc.y*dt*dt);
-    const na=world.calculateGravityAcceleration(pos);
-    vel=new Vector2(vel.x+0.5*(acc.x+na.x)*dt,vel.y+0.5*(acc.y+na.y)*dt);
-    if(isNaN(pos.x)||isNaN(pos.y))break;
-    points.push(pos.clone());
-    for(const b of world.bodies){if(pos.distanceTo(b.position)<b.radius){willCollide=true;collisionBody=b;return{points,isEscape,willCollide,collisionBody}}}
-    if(sd&&pos.distanceTo(sd.position)>sDist*3)isEscape=true;
-  }
-  return{points,isEscape,willCollide,collisionBody};
-}
-static calculateOrbitalElements(position,velocity,body){
-  const rp=position.sub(body.position),rv=velocity.sub(body.velocity);
-  const r=rp.magnitude(),v=rv.magnitude(),mu=G*body.mass;
-  if(r<0.01||mu<0.01)return null;
-  const energy=0.5*v*v-mu/r;if(energy>=0)return null;
-  const a=-mu/(2*energy),h=rp.cross(rv);
-  const eSq=1+(2*energy*h*h)/(mu*mu),e=Math.sqrt(Math.max(0,eSq));
-  const periapsis=a*(1-e),apoapsis=a*(1+e);
-  const period=2*Math.PI*Math.sqrt(Math.abs(a*a*a)/mu);
-  if(!isFinite(period)||!isFinite(apoapsis))return null;
-  return{apoapsis,periapsis,eccentricity:e,period,semiMajorAxis:a};
-}
-static circularOrbitVelocity(body,distance){return Math.sqrt(G*body.mass/Math.max(distance,1))}
-}
-
-// === Ship ===
-class Ship{
-constructor(c){this.position=c.position.clone();this.velocity=c.velocity.clone();this.rotation=c.rotation;this.angularVelocity=0;this.thrustPower=c.thrustPower;this.rotationSpeed=c.rotationSpeed;this.fuel=c.maxFuel;this.maxFuel=c.maxFuel;this.fuelConsumption=c.fuelConsumption;this.isThrusting=false;this.isBoosting=false;this.throttle=1;this.acceleration=Vector2.zero()}
-get thrustDirection(){return Vector2.fromAngle(this.rotation)}
-applyThrust(dt){if(this.fuel<=0||!this.isThrusting)return Vector2.zero();const p=this.isBoosting?this.thrustPower*2.5:this.thrustPower;const c=this.isBoosting?this.fuelConsumption*3:this.fuelConsumption;this.fuel=Math.max(0,this.fuel-c*dt*this.throttle);return this.thrustDirection.scale(p*this.throttle)}
-rotateLeft(dt){this.rotation-=this.rotationSpeed*dt}
-rotateRight(dt){this.rotation+=this.rotationSpeed*dt}
-get fuelPercent(){return this.maxFuel>0?this.fuel/this.maxFuel:0}
-get speed(){return this.velocity.magnitude()}
-}
-
-// === Solar System ===
+static predict(pos,vel,world,steps=300,dt=1){const pts=[];let p=pos.clone(),v=vel.clone(),esc=false,col=false,cb;
+const sd=world.findDom(p),sD=sd?p.distanceTo(sd.position):1e9;
+for(let i=0;i<steps;i++){const a=world.calcGrav(p);p=new Vector2(p.x+v.x*dt+.5*a.x*dt*dt,p.y+v.y*dt+.5*a.y*dt*dt);const na=world.calcGrav(p);v=new Vector2(v.x+.5*(a.x+na.x)*dt,v.y+.5*(a.y+na.y)*dt);
+if(isNaN(p.x)||isNaN(p.y))break;pts.push(p.clone());
+for(const b of world.bodies){if(p.distanceTo(b.position)<b.radius){col=true;cb=b;return{pts,esc,col,cb}}}
+if(sd&&p.distanceTo(sd.position)>sD*3)esc=true}return{pts,esc,col,cb}}
+static orbEl(pos,vel,body){const rp=pos.sub(body.position),rv=vel.sub(body.velocity),r=rp.magnitude(),v=rv.magnitude(),mu=G*body.mass;
+if(r<1||mu<1)return null;const en=.5*v*v-mu/r;if(en>=0)return null;
+const a=-mu/(2*en),h=rp.cross(rv),eSq=1+(2*en*h*h)/(mu*mu),e=Math.sqrt(Math.max(0,eSq));
+const pe=a*(1-e),ap=a*(1+e),T=2*Math.PI*Math.sqrt(Math.abs(a*a*a)/mu);
+if(!isFinite(T)||!isFinite(ap))return null;return{ap,pe,e,T,a}}
+static circV(body,d){return Math.sqrt(G*body.mass/Math.max(d,1))}}
+class Ship{constructor(c){this.position=c.position.clone();this.velocity=c.velocity.clone();this.rotation=c.rotation;this.thrustPower=c.thrustPower;this.rotationSpeed=c.rotationSpeed;this.fuel=c.maxFuel;this.maxFuel=c.maxFuel;this.fuelCons=c.fuelCons;this.isThrusting=false;this.isBoosting=false;this.throttle=1;this.acceleration=Vector2.zero()}
+get td(){return Vector2.fromAngle(this.rotation)}
+thrust(dt){if(this.fuel<=0||!this.isThrusting)return Vector2.zero();const p=this.isBoosting?this.thrustPower*2.5:this.thrustPower,c=this.isBoosting?this.fuelCons*3:this.fuelCons;this.fuel=Math.max(0,this.fuel-c*dt*this.throttle);return this.td.scale(p*this.throttle)}
+rotL(dt){this.rotation-=this.rotationSpeed*dt}rotR(dt){this.rotation+=this.rotationSpeed*dt}
+get fp(){return this.maxFuel>0?this.fuel/this.maxFuel:0}
+get speed(){return this.velocity.magnitude()}}
 function createSolarSystem(){
-  const world=new PhysicsWorld();
-  const star=new CelestialBody({name:'Sol',mass:5e6,radius:120,position:Vector2.zero(),velocity:Vector2.zero(),color:0xFFDD44,atmosphereColor:0xFFAA00,atmosphereRadius:168,fixed:true});
-  world.addBody(star);
-  function mp(name,mass,radius,dist,parent,color,atm,angle){
-    const pos=parent.position.add(Vector2.fromAngle(angle,dist));
-    const spd=OrbitalMechanics.circularOrbitVelocity(parent,dist);
-    const vel=parent.velocity.add(Vector2.fromAngle(angle+Math.PI/2,spd));
-    return new CelestialBody({name,mass,radius,position:pos,velocity:vel,color,atmosphereColor:atm,atmosphereRadius:atm?radius*1.2:undefined,fixed:false});
-  }
-  const planets=[mp('Mercury',800,12,1200,star,0xAAAA88,null,0.5),mp('Venus',2000,20,2200,star,0xDDAA55,0xFFCC88,1.2),mp('Earth',3000,24,3500,star,0x4488FF,0x88BBFF,2.1),mp('Mars',1500,16,5000,star,0xCC6644,0xDD8866,3.5),mp('Jupiter',15000,50,8000,star,0xDDBB88,0xEECC99,4.8)];
-  planets.forEach(p=>world.addBody(p));
-  const earth=planets[2],mars=planets[3],jupiter=planets[4];
-  const moons=[mp('Luna',200,8,200,earth,0xCCCCCC,null,0),mp('Phobos',80,5,120,mars,0xAA9988,null,1),mp('Europa',300,10,250,jupiter,0xBBCCDD,null,0.5),mp('Io',250,9,160,jupiter,0xDDCC44,null,2.0)];
-  moons.forEach(m=>world.addBody(m));
-  const sd=100,sp=earth.position.add(Vector2.fromAngle(0,sd)),sv=earth.velocity.add(Vector2.fromAngle(Math.PI/2,OrbitalMechanics.circularOrbitVelocity(earth,sd)));
-  const ship=new Ship({position:sp,velocity:sv,rotation:-Math.PI/2,thrustPower:50,rotationSpeed:3,maxFuel:1000,fuelConsumption:2});
-  return{world,star,planets,moons,ship};
-}
-
-// === Camera ===
-class Camera{
-constructor(){this.position=Vector2.zero();this.zoom=1;this.targetZoom=1;this.mode='follow_ship';this.followTarget=null;this.screenWidth=0;this.screenHeight=0}
-setScreenSize(w,h){this.screenWidth=w;this.screenHeight=h}
-setFollowTarget(t){this.followTarget=t;if(t)this.mode='follow_ship'}
-adjustZoom(d){const f=d>0?0.9:1.1;this.targetZoom=Math.max(0.001,Math.min(5,this.targetZoom*f))}
-update(){this.zoom+=(this.targetZoom-this.zoom)*0.15;if(this.mode==='follow_ship'&&this.followTarget)this.position=this.position.lerp(this.followTarget.position,0.1)}
-worldToScreen(wp){return new Vector2((wp.x-this.position.x)*this.zoom+this.screenWidth/2,(wp.y-this.position.y)*this.zoom+this.screenHeight/2)}
-worldToScreenScale(d){return d*this.zoom}
-pan(dx,dy){this.position=this.position.add(new Vector2(dx/this.zoom,dy/this.zoom))}
-}
-
-// === InputManager (FIXED: clean event handling) ===
+const w=new PhysicsWorld();
+const star=new CelestialBody({name:'Sol',mass:5e6,radius:120,position:Vector2.zero(),velocity:Vector2.zero(),color:0xFFDD44,atmosphereColor:0xFFAA00,atmosphereRadius:168,fixed:true});w.addBody(star);
+function mp(n,m,r,d,par,c,ac,ang){const pos=par.position.add(Vector2.fromAngle(ang,d)),spd=OrbitalMechanics.circV(par,d),vel=par.velocity.add(Vector2.fromAngle(ang+Math.PI/2,spd));return new CelestialBody({name:n,mass:m,radius:r,position:pos,velocity:vel,color:c,atmosphereColor:ac||0,atmosphereRadius:ac?r*1.2:0,fixed:false})}
+const pl=[mp('Mercury',800,12,1200,star,0xAAAA88,0,.5),mp('Venus',2000,20,2200,star,0xDDAA55,0xFFCC88,1.2),mp('Earth',3000,24,3500,star,0x4488FF,0x88BBFF,2.1),mp('Mars',1500,16,5000,star,0xCC6644,0xDD8866,3.5),mp('Jupiter',15000,50,8000,star,0xDDBB88,0xEECC99,4.8)];
+pl.forEach(p=>w.addBody(p));const earth=pl[2],mars=pl[3],jup=pl[4];
+[mp('Luna',200,8,200,earth,0xCCCCCC,0,0),mp('Phobos',80,5,120,mars,0xAA9988,0,1),mp('Europa',300,10,250,jup,0xBBCCDD,0,.5),mp('Io',250,9,160,jup,0xDDCC44,0,2)].forEach(m=>w.addBody(m));
+const sd=100,sp=earth.position.add(Vector2.fromAngle(0,sd)),sv=earth.velocity.add(Vector2.fromAngle(Math.PI/2,OrbitalMechanics.circV(earth,sd)));
+const ship=new Ship({position:sp,velocity:sv,rotation:-Math.PI/2,thrustPower:50,rotationSpeed:3,maxFuel:1000,fuelCons:2});
+return{w,star,pl,ship}}
+class Camera{constructor(){this.position=Vector2.zero();this.zoom=1;this.targetZoom=1;this.mode='follow';this.target=null;this.sw=0;this.sh=0}
+setSz(w,h){this.sw=w;this.sh=h}setTarget(t){this.target=t;if(t)this.mode='follow'}
+adjZoom(d){this.targetZoom=Math.max(.001,Math.min(5,this.targetZoom*(d>0?.9:1.1)))}
+update(){this.zoom+=(this.targetZoom-this.zoom)*.15;if(this.mode==='follow'&&this.target)this.position=this.position.lerp(this.target.position,.1)}
+w2s(p){return new Vector2((p.x-this.position.x)*this.zoom+this.sw/2,(p.y-this.position.y)*this.zoom+this.sh/2)}
+w2ss(d){return d*this.zoom}
+pan(dx,dy){this.position=this.position.add(new Vector2(dx/this.zoom,dy/this.zoom))}}
 class InputManager{
-constructor(){this.keys=new Set();this.keysJustPressed=new Set();this._pinchDelta=0;this.lastPinchDist=0;this._scrollDelta=0;this._isMobile=false;this.canvas=null}
-get isMobile(){return this._isMobile}
-get pinchDelta(){return this._pinchDelta}
-init(canvas){
-  this.canvas=canvas;this._isMobile='ontouchstart' in window||navigator.maxTouchPoints>0;
-  window.addEventListener('keydown',this._kd);window.addEventListener('keyup',this._ku);
-  canvas.addEventListener('wheel',this._wh,{passive:false});
-  canvas.addEventListener('touchstart',this._ts,{passive:false});
-  canvas.addEventListener('touchmove',this._tm,{passive:false});
-  canvas.addEventListener('touchend',this._te,{passive:false});
-  canvas.addEventListener('touchcancel',this._te,{passive:false});
-}
-destroy(){
-  window.removeEventListener('keydown',this._kd);window.removeEventListener('keyup',this._ku);
-  if(this.canvas){this.canvas.removeEventListener('wheel',this._wh);this.canvas.removeEventListener('touchstart',this._ts);this.canvas.removeEventListener('touchmove',this._tm);this.canvas.removeEventListener('touchend',this._te);this.canvas.removeEventListener('touchcancel',this._te)}
-}
-endFrame(){this.keysJustPressed.clear();this._scrollDelta=0;this._pinchDelta=0}
-isKeyDown(k){return this.keys.has(k.toLowerCase())}
-isKeyJustPressed(k){return this.keysJustPressed.has(k.toLowerCase())}
-getScrollDelta(){return this._scrollDelta}
-simulateKeyDown(k){k=k.toLowerCase();if(!this.keys.has(k))this.keysJustPressed.add(k);this.keys.add(k)}
-simulateKeyUp(k){this.keys.delete(k.toLowerCase())}
-_kd=(e)=>{const k=e.key.toLowerCase();if(!this.keys.has(k))this.keysJustPressed.add(k);this.keys.add(k);if(['w','a','s','d',' ','shift','tab',',','.'].includes(k))e.preventDefault()};
+constructor(){this.keys=new Set();this.jp=new Set();this._pd=0;this._sd=0;this.lpd=0;this._m=false;this.cv=null}
+get isMobile(){return this._m}get pinchDelta(){return this._pd}
+init(c){this.cv=c;this._m='ontouchstart'in window||navigator.maxTouchPoints>0;
+window.addEventListener('keydown',this._kd);window.addEventListener('keyup',this._ku);
+c.addEventListener('wheel',this._wh,{passive:false});
+c.addEventListener('touchstart',this._ts,{passive:false});c.addEventListener('touchmove',this._tm,{passive:false});
+c.addEventListener('touchend',this._te,{passive:false});c.addEventListener('touchcancel',this._te,{passive:false})}
+destroy(){window.removeEventListener('keydown',this._kd);window.removeEventListener('keyup',this._ku);
+if(this.cv){this.cv.removeEventListener('wheel',this._wh);this.cv.removeEventListener('touchstart',this._ts);this.cv.removeEventListener('touchmove',this._tm);this.cv.removeEventListener('touchend',this._te);this.cv.removeEventListener('touchcancel',this._te)}}
+ef(){this.jp.clear();this._sd=0;this._pd=0}
+kd(k){return this.keys.has(k.toLowerCase())}kjp(k){return this.jp.has(k.toLowerCase())}gsd(){return this._sd}
+skd(k){k=k.toLowerCase();if(!this.keys.has(k))this.jp.add(k);this.keys.add(k)}sku(k){this.keys.delete(k.toLowerCase())}
+_kd=(e)=>{const k=e.key.toLowerCase();if(!this.keys.has(k))this.jp.add(k);this.keys.add(k);if('wasdc ,.shift'.includes(k)||k==='tab')e.preventDefault()};
 _ku=(e)=>{this.keys.delete(e.key.toLowerCase())};
-_wh=(e)=>{e.preventDefault();this._scrollDelta+=e.deltaY};
-_ts=(e)=>{e.preventDefault();if(e.touches.length===2){const t1=e.touches[0],t2=e.touches[1];this.lastPinchDist=Math.sqrt((t2.clientX-t1.clientX)**2+(t2.clientY-t1.clientY)**2)}};
-_tm=(e)=>{e.preventDefault();if(e.touches.length===2){const t1=e.touches[0],t2=e.touches[1];const d=Math.sqrt((t2.clientX-t1.clientX)**2+(t2.clientY-t1.clientY)**2);if(this.lastPinchDist>0)this._pinchDelta+=(this.lastPinchDist-d)*3;this.lastPinchDist=d}};
-_te=(e)=>{e.preventDefault();if(e.touches.length<2)this.lastPinchDist=0};
-}
-
-// === Starfield ===
-class Starfield{
-constructor(w,h){this.container=new PIXI.Container();this.layers=[];this.width=w;this.height=h;
-this._cl(200,0.02,0.5,1.0);this._cl(100,0.05,1.0,1.5);this._cl(50,0.1,1.5,2.5)}
-_cl(count,pf,minS,maxS){const g=new PIXI.Graphics();const stars=[];for(let i=0;i<count;i++)stars.push({x:(Math.random()-0.5)*4000,y:(Math.random()-0.5)*4000,b:0.3+Math.random()*0.7,s:minS+Math.random()*(maxS-minS)});this.container.addChild(g);this.layers.push({g,stars,pf})}
-render(cam){for(const l of this.layers){l.g.clear();const ox=-cam.position.x*l.pf,oy=-cam.position.y*l.pf;for(const s of l.stars){const sx=((s.x+ox)%this.width+this.width)%this.width,sy=((s.y+oy)%this.height+this.height)%this.height;const a=s.b*(0.7+0.3*Math.sin(Date.now()*0.001+s.x));const c=s.b>0.8?0xCCDDFF:s.b>0.5?0xFFFFFF:0xAABBCC;l.g.circle(sx,sy,s.s);l.g.fill({color:c,alpha:a})}}}
-}
-
-// === PlanetRenderer (FIXED: use cam.screenWidth/Height) ===
-class PlanetRenderer{
-constructor(){this.container=new PIXI.Container();this.g=new PIXI.Graphics();this.container.addChild(this.g)}
-render(bodies,cam){this.g.clear();for(const b of bodies){const sp=cam.worldToScreen(b.position),sr=cam.worldToScreenScale(b.radius);if(sp.x<-sr*2||sp.x>cam.screenWidth+sr*2||sp.y<-sr*2||sp.y>cam.screenHeight+sr*2)continue;if(sr<0.5)continue;
-if(b.atmosphereColor&&b.atmosphereRadius>b.radius){const ar=cam.worldToScreenScale(b.atmosphereRadius);this.g.circle(sp.x,sp.y,ar);this.g.fill({color:b.atmosphereColor,alpha:0.08});this.g.circle(sp.x,sp.y,sr+(ar-sr)*0.5);this.g.fill({color:b.atmosphereColor,alpha:0.12})}
-this.g.circle(sp.x,sp.y,sr);this.g.fill({color:b.color});
-if(sr>3){this.g.circle(sp.x+sr*0.15,sp.y-sr*0.1,sr);this.g.fill({color:0x000000,alpha:0.25})}
-if(b.fixed&&sr>2){for(let i=1;i<=3;i++){this.g.circle(sp.x,sp.y,sr*(1+i*0.4));this.g.fill({color:b.atmosphereColor||b.color,alpha:0.04/i})}}}}
-}
-
-// === ShipRenderer ===
-class ShipRenderer{
-constructor(){this.container=new PIXI.Container();this.g=new PIXI.Graphics();this.container.addChild(this.g)}
-render(ship,cam){this.g.clear();const sp=cam.worldToScreen(ship.position),sc=Math.max(1,cam.zoom*12);
-const nose=Vector2.fromAngle(ship.rotation,sc*1.2),lw=Vector2.fromAngle(ship.rotation+Math.PI*0.8,sc*0.8),rw=Vector2.fromAngle(ship.rotation-Math.PI*0.8,sc*0.8),tail=Vector2.fromAngle(ship.rotation+Math.PI,sc*0.4);
-const pts=[{x:sp.x+nose.x,y:sp.y+nose.y},{x:sp.x+lw.x,y:sp.y+lw.y},{x:sp.x+tail.x,y:sp.y+tail.y},{x:sp.x+rw.x,y:sp.y+rw.y}];
-this.g.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)this.g.lineTo(pts[i].x,pts[i].y);this.g.closePath();this.g.fill({color:0x88CCFF,alpha:0.9});
-this.g.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)this.g.lineTo(pts[i].x,pts[i].y);this.g.closePath();this.g.stroke({color:0x44AAFF,width:2,alpha:0.4});
-if(ship.isThrusting&&ship.fuel>0){const fd=Vector2.fromAngle(ship.rotation+Math.PI),fl=sc*(0.8+Math.random()*0.6)*(ship.isBoosting?1.8:1);
-const fb1=Vector2.fromAngle(ship.rotation+Math.PI*0.9,sc*0.3),fb2=Vector2.fromAngle(ship.rotation-Math.PI*0.9,sc*0.3),ft=fd.scale(fl);
-this.g.moveTo(sp.x+fb1.x,sp.y+fb1.y);this.g.lineTo(sp.x+ft.x,sp.y+ft.y);this.g.lineTo(sp.x+fb2.x,sp.y+fb2.y);this.g.closePath();this.g.fill({color:ship.isBoosting?0xFF4400:0xFF8800,alpha:0.7});
-const it=fd.scale(fl*0.6),ib1=Vector2.fromAngle(ship.rotation+Math.PI*0.92,sc*0.15),ib2=Vector2.fromAngle(ship.rotation-Math.PI*0.92,sc*0.15);
-this.g.moveTo(sp.x+ib1.x,sp.y+ib1.y);this.g.lineTo(sp.x+it.x,sp.y+it.y);this.g.lineTo(sp.x+ib2.x,sp.y+ib2.y);this.g.closePath();this.g.fill({color:0xFFDD44,alpha:0.9})}
-const ind=Vector2.fromAngle(ship.rotation,sc*2);this.g.moveTo(sp.x+nose.x,sp.y+nose.y);this.g.lineTo(sp.x+ind.x,sp.y+ind.y);this.g.stroke({color:0x44AAFF,width:1,alpha:0.3})}
-}
-
-// === ParticleSystem ===
-class ParticleSystem{
-constructor(){this.container=new PIXI.Container();this.g=new PIXI.Graphics();this.container.addChild(this.g);this.particles=[];this.pool=[]}
-emit(pos,vel,count,cfg){for(let i=0;i<count;i++){if(this.particles.length>=500)break;const a=vel.angle()+(Math.random()-0.5)*cfg.spread;const s=cfg.speed*(0.5+Math.random()*0.5);const pv=Vector2.fromAngle(a,s).add(vel.scale(0.3));const p=this.pool.length>0?this.pool.pop():{};p.position=pos.clone();p.velocity=pv;p.life=cfg.life;p.maxLife=cfg.life;p.color=cfg.color;p.size=cfg.size*(0.5+Math.random()*0.5);this.particles.push(p)}}
-update(dt){for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.position.addMut(p.velocity.scale(dt));p.velocity.scaleMut(0.98);p.life-=dt;if(p.life<=0)this.pool.push(this.particles.splice(i,1)[0])}}
-render(cam){this.g.clear();for(const p of this.particles){const sp=cam.worldToScreen(p.position);const a=(p.life/p.maxLife)*0.8,sz=Math.max(1,p.size*cam.zoom);this.g.circle(sp.x,sp.y,sz);this.g.fill({color:p.color,alpha:a})}}
-}
-
-// === OrbitRenderer ===
-class OrbitRenderer{
-constructor(){this.container=new PIXI.Container();this.g=new PIXI.Graphics();this.container.addChild(this.g)}
-render(pred,cam){this.g.clear();if(!pred||pred.points.length<2)return;const pts=pred.points;
-const color=pred.willCollide?0xFF4444:pred.isEscape?0xFF8844:0x44FF88;const total=pts.length,seg=Math.max(1,Math.floor(total/150));
-for(let i=0;i<total-seg;i+=seg){const p1=cam.worldToScreen(pts[i]),p2=cam.worldToScreen(pts[Math.min(i+seg,total-1)]);this.g.moveTo(p1.x,p1.y);this.g.lineTo(p2.x,p2.y);this.g.stroke({color,width:1.5,alpha:0.6*(1-i/total)})}
-if(pred.willCollide){const ip=cam.worldToScreen(pts[pts.length-1]);this.g.moveTo(ip.x-6,ip.y-6);this.g.lineTo(ip.x+6,ip.y+6);this.g.stroke({color:0xFF4444,width:2,alpha:0.8});this.g.moveTo(ip.x+6,ip.y-6);this.g.lineTo(ip.x-6,ip.y+6);this.g.stroke({color:0xFF4444,width:2,alpha:0.8})}}
-renderBodyOrbits(bodies,center,cam){for(const b of bodies){const dx=b.position.x-center.x,dy=b.position.y-center.y,or=Math.sqrt(dx*dx+dy*dy);const sc=cam.worldToScreen(center),sr=cam.worldToScreenScale(or);if(sr>5&&sr<10000){this.g.circle(sc.x,sc.y,sr);this.g.stroke({color:0xFFFFFF,width:0.5,alpha:0.08})}}}
-}
-
-// === HUD ===
-class HUD{
-constructor(sw,sh,isMobile){this.container=new PIXI.Container();this.sw=sw;this.sh=sh;this.isMobile=isMobile;
-const ms=isMobile?11:13,ds=isMobile?9:11,pad=isMobile?10:16,lh=isMobile?15:18;
-const mSt={fontFamily:'monospace',fontSize:ms,fill:0x88CCFF};const dSt={fontFamily:'monospace',fontSize:ds,fill:0x667788};
-const aSt={fontFamily:'monospace',fontSize:ms,fill:0x44FF88};const wSt={fontFamily:'monospace',fontSize:isMobile?12:14,fill:0xFFDD44};
-this.velText=new PIXI.Text({text:'',style:mSt});this.velText.position.set(pad,pad);this.container.addChild(this.velText);
-this.altText=new PIXI.Text({text:'',style:mSt});this.altText.position.set(pad,pad+lh);this.container.addChild(this.altText);
-this.bodyText=new PIXI.Text({text:'',style:aSt});this.bodyText.position.set(pad,pad+lh*2);this.container.addChild(this.bodyText);
-this.orbitText=new PIXI.Text({text:'',style:dSt});this.orbitText.position.set(pad,pad+lh*3);this.container.addChild(this.orbitText);
-this.warpText=new PIXI.Text({text:'',style:wSt});this.warpText.anchor.set(0.5,0);this.warpText.position.set(sw/2,pad);this.container.addChild(this.warpText);
-const fbo=isMobile?190:40;this.fbo=fbo;this.pad=pad;
-this.fuelBar=new PIXI.Graphics();this.fuelBar.position.set(pad,sh-fbo);this.container.addChild(this.fuelBar);
-this.fuelText=new PIXI.Text({text:'',style:mSt});this.fuelText.position.set(pad,sh-fbo-18);this.container.addChild(this.fuelText);
-this.ctrlText=new PIXI.Text({text:isMobile?'':'W:Thrust A/D:Rotate Shift:Boost ,/.:Warp R:Reset',style:dSt});this.ctrlText.anchor.set(1,1);this.ctrlText.position.set(sw-pad,sh-pad);this.container.addChild(this.ctrlText)}
-update(ship,dom,tw){
-  this.velText.text=`VEL ${ship.speed.toFixed(1)} m/s`;
-  if(dom){const alt=ship.position.distanceTo(dom.position)-dom.radius;this.altText.text=`ALT ${alt.toFixed(0)} m`;this.bodyText.text=`SOI: ${dom.name}`;
-  const el=OrbitalMechanics.calculateOrbitalElements(ship.position,ship.velocity,dom);
-  if(el){this.orbitText.text=this.isMobile?`AP:${el.apoapsis.toFixed(0)} PE:${el.periapsis.toFixed(0)} E:${el.eccentricity.toFixed(2)}`:`AP:${el.apoapsis.toFixed(0)} PE:${el.periapsis.toFixed(0)} ECC:${el.eccentricity.toFixed(3)} T:${el.period.toFixed(1)}s`}
-  else this.orbitText.text='ESCAPE TRAJECTORY'}
-  else{this.altText.text='ALT ---';this.bodyText.text='SOI: Deep Space';this.orbitText.text=''}
-  this.warpText.text=tw>1?`>>> x${tw} >>>` :'';
-  this.fuelBar.clear();const bw=this.isMobile?Math.min(150,this.sw*0.35):200,bh=this.isMobile?6:8;
-  this.fuelBar.rect(0,0,bw,bh);this.fuelBar.fill({color:0x222233});
-  const fw=bw*ship.fuelPercent,fc=ship.fuelPercent>0.3?0x44FF88:ship.fuelPercent>0.1?0xFFDD44:0xFF4444;
-  this.fuelBar.rect(0,0,fw,bh);this.fuelBar.fill({color:fc});this.fuelBar.rect(0,0,bw,bh);this.fuelBar.stroke({color:0x445566,width:1});
-  this.fuelText.text=`FUEL ${(ship.fuelPercent*100).toFixed(0)}%`}
-resize(w,h){this.sw=w;this.sh=h;this.warpText.position.set(w/2,this.pad);this.fuelBar.position.set(this.pad,h-this.fbo);this.fuelText.position.set(this.pad,h-this.fbo-18);this.ctrlText.position.set(w-this.pad,h-this.pad)}
-}
-
-// === Minimap ===
-class Minimap{
-constructor(size){this.size=size||180;this.container=new PIXI.Container();this.bg=new PIXI.Graphics();this.container.addChild(this.bg);this.g=new PIXI.Graphics();this.container.addChild(this.g);this.mapScale=0.012}
-setPosition(sw,sh){this.container.position.set(sw-this.size-12,12)}
-render(bodies,ship){this.bg.clear();this.g.clear();this.bg.roundRect(0,0,this.size,this.size,4);this.bg.fill({color:0x0a0a14,alpha:0.8});this.bg.roundRect(0,0,this.size,this.size,4);this.bg.stroke({color:0x334455,width:1});
-const cx=this.size/2,cy=this.size/2;for(const b of bodies){const mx=cx+b.position.x*this.mapScale,my=cy+b.position.y*this.mapScale;if(mx<-5||mx>this.size+5||my<-5||my>this.size+5)continue;const ds=b.fixed?4:Math.max(1.5,b.radius*this.mapScale*2);this.g.circle(mx,my,ds);this.g.fill({color:b.color})}
-const sx=cx+ship.position.x*this.mapScale,sy=cy+ship.position.y*this.mapScale;const clx=Math.max(3,Math.min(this.size-3,sx)),cly=Math.max(3,Math.min(this.size-3,sy));
-this.g.circle(clx,cly,2.5);this.g.fill({color:0x44AAFF});const d=Vector2.fromAngle(ship.rotation,6);this.g.moveTo(clx,cly);this.g.lineTo(clx+d.x,cly+d.y);this.g.stroke({color:0x44AAFF,width:1,alpha:0.6})}
-resize(sw,sh){this.setPosition(sw,sh)}
-}
-
-// === TouchControls (FIXED: canvas coords, proper key release, safety reset) ===
+_wh=(e)=>{e.preventDefault();this._sd+=e.deltaY};
+_ts=(e)=>{e.preventDefault();if(e.touches.length===2){const a=e.touches[0],b=e.touches[1];this.lpd=Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY)}};
+_tm=(e)=>{e.preventDefault();if(e.touches.length===2){const a=e.touches[0],b=e.touches[1],d=Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY);if(this.lpd>0)this._pd+=(this.lpd-d)*3;this.lpd=d}};
+_te=(e)=>{e.preventDefault();if(e.touches.length<2)this.lpd=0}}
+class Starfield{constructor(w,h){this.c=new PIXI.Container();this.ls=[];this.w=w;this.h=h;this._mk(200,.02,.5,1);this._mk(100,.05,1,1.5);this._mk(50,.1,1.5,2.5)}
+_mk(n,pf,mn,mx){const g=new PIXI.Graphics(),st=[];for(let i=0;i<n;i++)st.push({x:(Math.random()-.5)*4000,y:(Math.random()-.5)*4000,b:.3+Math.random()*.7,s:mn+Math.random()*(mx-mn)});this.c.addChild(g);this.ls.push({g,st,pf})}
+render(cam){for(const l of this.ls){l.g.clear();const ox=-cam.position.x*l.pf,oy=-cam.position.y*l.pf;for(const s of l.st){const sx=((s.x+ox)%this.w+this.w)%this.w,sy=((s.y+oy)%this.h+this.h)%this.h;l.g.circle(sx,sy,s.s);l.g.fill({color:s.b>.8?0xCCDDFF:s.b>.5?0xFFFFFF:0xAABBCC,alpha:s.b*.85})}}}}
+class PlanetRenderer{constructor(){this.c=new PIXI.Container();this.g=new PIXI.Graphics();this.c.addChild(this.g)}
+render(bodies,cam){this.g.clear();for(const b of bodies){const sp=cam.w2s(b.position),sr=cam.w2ss(b.radius);if(sp.x<-sr*2||sp.x>cam.sw+sr*2||sp.y<-sr*2||sp.y>cam.sh+sr*2||sr<.5)continue;
+if(b.atmosphereColor&&b.atmosphereRadius>b.radius){const ar=cam.w2ss(b.atmosphereRadius);this.g.circle(sp.x,sp.y,ar);this.g.fill({color:b.atmosphereColor,alpha:.08});this.g.circle(sp.x,sp.y,sr+(ar-sr)*.5);this.g.fill({color:b.atmosphereColor,alpha:.12})}
+this.g.circle(sp.x,sp.y,sr);this.g.fill({color:b.color});if(sr>3){this.g.circle(sp.x+sr*.15,sp.y-sr*.1,sr);this.g.fill({color:0,alpha:.2})}
+if(b.fixed&&sr>2){for(let i=1;i<=3;i++){this.g.circle(sp.x,sp.y,sr*(1+i*.4));this.g.fill({color:b.atmosphereColor||b.color,alpha:.04/i})}}}}}
+class ShipRenderer{constructor(){this.c=new PIXI.Container();this.g=new PIXI.Graphics();this.c.addChild(this.g)}
+render(ship,cam){this.g.clear();const sp=cam.w2s(ship.position),sc=Math.max(1,cam.zoom*12);
+const n=Vector2.fromAngle(ship.rotation,sc*1.2),lw=Vector2.fromAngle(ship.rotation+Math.PI*.8,sc*.8),rw=Vector2.fromAngle(ship.rotation-Math.PI*.8,sc*.8),tl=Vector2.fromAngle(ship.rotation+Math.PI,sc*.4);
+const pts=[{x:sp.x+n.x,y:sp.y+n.y},{x:sp.x+lw.x,y:sp.y+lw.y},{x:sp.x+tl.x,y:sp.y+tl.y},{x:sp.x+rw.x,y:sp.y+rw.y}];
+this.g.poly(pts);this.g.fill({color:0x88CCFF,alpha:.9});this.g.poly(pts);this.g.stroke({color:0x44AAFF,width:2,alpha:.4});
+if(ship.isThrusting&&ship.fuel>0){const fd=Vector2.fromAngle(ship.rotation+Math.PI),fl=sc*(.8+Math.random()*.6)*(ship.isBoosting?1.8:1);
+const fb1=Vector2.fromAngle(ship.rotation+Math.PI*.9,sc*.3),fb2=Vector2.fromAngle(ship.rotation-Math.PI*.9,sc*.3),ft=fd.scale(fl);
+this.g.poly([{x:sp.x+fb1.x,y:sp.y+fb1.y},{x:sp.x+ft.x,y:sp.y+ft.y},{x:sp.x+fb2.x,y:sp.y+fb2.y}]);
+this.g.fill({color:ship.isBoosting?0xFF4400:0xFF8800,alpha:.7});
+const it=fd.scale(fl*.6),ib1=Vector2.fromAngle(ship.rotation+Math.PI*.92,sc*.15),ib2=Vector2.fromAngle(ship.rotation-Math.PI*.92,sc*.15);
+this.g.poly([{x:sp.x+ib1.x,y:sp.y+ib1.y},{x:sp.x+it.x,y:sp.y+it.y},{x:sp.x+ib2.x,y:sp.y+ib2.y}]);
+this.g.fill({color:0xFFDD44,alpha:.9})}}}
+class ParticleSystem{constructor(){this.c=new PIXI.Container();this.g=new PIXI.Graphics();this.c.addChild(this.g);this.ps=[];this.pool=[]}
+emit(pos,vel,n,cfg){for(let i=0;i<n;i++){if(this.ps.length>=300)break;const a=vel.angle()+(Math.random()-.5)*cfg.spread,s=cfg.speed*(.5+Math.random()*.5);
+const p=this.pool.length>0?this.pool.pop():{};p.pos=pos.clone();p.vel=Vector2.fromAngle(a,s).add(vel.scale(.3));p.life=cfg.life;p.ml=cfg.life;p.col=cfg.color;p.sz=cfg.size*(.5+Math.random()*.5);this.ps.push(p)}}
+update(dt){for(let i=this.ps.length-1;i>=0;i--){const p=this.ps[i];p.pos.addMut(p.vel.scale(dt));p.vel.scaleMut(.98);p.life-=dt;if(p.life<=0)this.pool.push(this.ps.splice(i,1)[0])}}
+render(cam){this.g.clear();for(const p of this.ps){const sp=cam.w2s(p.pos);this.g.circle(sp.x,sp.y,Math.max(1,p.sz*cam.zoom));this.g.fill({color:p.col,alpha:(p.life/p.ml)*.8})}}}
+class OrbitRenderer{constructor(){this.c=new PIXI.Container();this.g=new PIXI.Graphics();this.c.addChild(this.g)}
+render(pred,cam){this.g.clear();if(!pred||pred.pts.length<2)return;const pts=pred.pts,col=pred.col?0xFF4444:pred.esc?0xFF8844:0x44FF88,tot=pts.length,seg=Math.max(1,Math.floor(tot/100));
+for(let i=0;i<tot-seg;i+=seg){const p1=cam.w2s(pts[i]),p2=cam.w2s(pts[Math.min(i+seg,tot-1)]);this.g.moveTo(p1.x,p1.y);this.g.lineTo(p2.x,p2.y);this.g.stroke({color:col,width:1.5,alpha:.5*(1-i/tot)})}}
+orbits(bodies,center,cam){for(const b of bodies){const or=Math.hypot(b.position.x-center.x,b.position.y-center.y),sc=cam.w2s(center),sr=cam.w2ss(or);if(sr>5&&sr<8000){this.g.circle(sc.x,sc.y,sr);this.g.stroke({color:0xFFFFFF,width:.5,alpha:.06})}}}}
+class HUD{constructor(sw,sh,mob){this.c=new PIXI.Container();this.sw=sw;this.sh=sh;this.mob=mob;
+const ms=mob?11:13,ds=mob?9:11,pad=mob?10:16,lh=mob?15:18;
+const mS={fontFamily:'monospace',fontSize:ms,fill:0x88CCFF},dS={fontFamily:'monospace',fontSize:ds,fill:0x667788},aS={fontFamily:'monospace',fontSize:ms,fill:0x44FF88},wS={fontFamily:'monospace',fontSize:mob?12:14,fill:0xFFDD44};
+this.vt=new PIXI.Text({text:'',style:mS});this.vt.position.set(pad,pad);this.c.addChild(this.vt);
+this.at=new PIXI.Text({text:'',style:mS});this.at.position.set(pad,pad+lh);this.c.addChild(this.at);
+this.bt=new PIXI.Text({text:'',style:aS});this.bt.position.set(pad,pad+lh*2);this.c.addChild(this.bt);
+this.ot=new PIXI.Text({text:'',style:dS});this.ot.position.set(pad,pad+lh*3);this.c.addChild(this.ot);
+this.wt=new PIXI.Text({text:'',style:wS});this.wt.anchor.set(.5,0);this.wt.position.set(sw/2,pad);this.c.addChild(this.wt);
+const fbo=mob?190:40;this.fbo=fbo;this.pad=pad;
+this.fb=new PIXI.Graphics();this.fb.position.set(pad,sh-fbo);this.c.addChild(this.fb);
+this.ft=new PIXI.Text({text:'',style:mS});this.ft.position.set(pad,sh-fbo-18);this.c.addChild(this.ft);
+if(!mob){this.ct=new PIXI.Text({text:'W:Thrust A/D:Rotate Shift:Boost ,/.:Warp R:Reset',style:dS});this.ct.anchor.set(1,1);this.ct.position.set(sw-pad,sh-pad);this.c.addChild(this.ct)}}
+update(ship,dom,tw){this.vt.text=`VEL ${ship.speed.toFixed(1)} m/s`;
+if(dom){const alt=ship.position.distanceTo(dom.position)-dom.radius;this.at.text=`ALT ${alt.toFixed(0)} m`;this.bt.text=`SOI: ${dom.name}`;
+const el=OrbitalMechanics.orbEl(ship.position,ship.velocity,dom);
+this.ot.text=el?(this.mob?`AP:${el.ap.toFixed(0)} PE:${el.pe.toFixed(0)} E:${el.e.toFixed(2)}`:`AP:${el.ap.toFixed(0)} PE:${el.pe.toFixed(0)} ECC:${el.e.toFixed(3)} T:${el.T.toFixed(1)}s`):'ESCAPE TRAJECTORY'}
+else{this.at.text='ALT ---';this.bt.text='SOI: Deep Space';this.ot.text=''}
+this.wt.text=tw>1?`>>> x${tw} >>>` :'';
+this.fb.clear();const bw=this.mob?Math.min(150,this.sw*.35):200,bh=this.mob?6:8;
+this.fb.rect(0,0,bw,bh);this.fb.fill({color:0x222233});
+this.fb.rect(0,0,bw*ship.fp,bh);this.fb.fill({color:ship.fp>.3?0x44FF88:ship.fp>.1?0xFFDD44:0xFF4444});
+this.fb.rect(0,0,bw,bh);this.fb.stroke({color:0x445566,width:1});
+this.ft.text=`FUEL ${(ship.fp*100).toFixed(0)}%`}
+resize(w,h){this.sw=w;this.sh=h;this.wt.position.set(w/2,this.pad);this.fb.position.set(this.pad,h-this.fbo);this.ft.position.set(this.pad,h-this.fbo-18);if(this.ct)this.ct.position.set(w-this.pad,h-this.pad)}}
+class Minimap{constructor(sz){this.sz=sz;this.c=new PIXI.Container();this.bg=new PIXI.Graphics();this.c.addChild(this.bg);this.g=new PIXI.Graphics();this.c.addChild(this.g);this.ms=.012}
+setPos(sw,sh){this.c.position.set(sw-this.sz-12,12)}
+render(bodies,ship){this.bg.clear();this.g.clear();this.bg.roundRect(0,0,this.sz,this.sz,4);this.bg.fill({color:0x0a0a14,alpha:.8});this.bg.roundRect(0,0,this.sz,this.sz,4);this.bg.stroke({color:0x334455,width:1});
+const cx=this.sz/2;for(const b of bodies){const mx=cx+b.position.x*this.ms,my=cx+b.position.y*this.ms;if(mx<-5||mx>this.sz+5||my<-5||my>this.sz+5)continue;this.g.circle(mx,my,b.fixed?4:Math.max(1.5,b.radius*this.ms*2));this.g.fill({color:b.color})}
+const sx=cx+ship.position.x*this.ms,sy=cx+ship.position.y*this.ms;const clx=Math.max(3,Math.min(this.sz-3,sx)),cly=Math.max(3,Math.min(this.sz-3,sy));
+this.g.circle(clx,cly,2.5);this.g.fill({color:0x44AAFF})}
+resize(sw,sh){this.setPos(sw,sh)}}
 class TouchControls{
-constructor(input,sw,sh){this.input=input;this.sw=sw;this.sh=sh;this.visible=false;this.canvas=null;
-this.container=new PIXI.Container();this.g=new PIXI.Graphics();this.container.addChild(this.g);this.labels=new Map();
-this.jBase={x:0,y:0,r:60};this.jKnob={x:0,y:0,r:24};this.jActive=false;this.jTouchId=null;this.jMag=0;
-this.buttons=[];this.topButtons=[];this._setup();this._setupLabels();
-window.addEventListener('touchstart',this._ts,{passive:false});window.addEventListener('touchmove',this._tm,{passive:false});window.addEventListener('touchend',this._te,{passive:false});window.addEventListener('touchcancel',this._te,{passive:false})}
-setCanvas(c){this.canvas=c}
-_toCC(cx,cy){if(this.canvas){const r=this.canvas.getBoundingClientRect();return{x:(cx-r.left)*(this.sw/r.width),y:(cy-r.top)*(this.sh/r.height)}}return{x:cx,y:cy}}
-_setup(){const sw=this.sw,sh=this.sh,br=Math.min(32,sw*0.06),bbr=Math.min(42,sw*0.08);
-this.jBase.x=90;this.jBase.y=sh-120;this.jBase.r=Math.min(60,sw*0.11);this.jKnob.x=this.jBase.x;this.jKnob.y=this.jBase.y;this.jKnob.r=Math.min(24,sw*0.045);
-const rx=sw-80,by=sh-100,sb=Math.min(22,sw*0.04);
-this.buttons=[{id:'thrust',x:rx,y:by-bbr*2.4,r:bbr,label:'THR',key:'w',active:false,tid:null},{id:'boost',x:rx-bbr*2.2,y:by,r:br,label:'BST',key:'shift',active:false,tid:null},{id:'reset',x:rx,y:by,r:br,label:'RST',key:'r',active:false,tid:null}];
-this.topButtons=[{id:'wd',x:sw/2-60,y:50,r:sb,label:'<<',key:',',active:false,tid:null},{id:'wu',x:sw/2+60,y:50,r:sb,label:'>>',key:'.',active:false,tid:null},{id:'zi',x:sw-40,y:sh/2-40,r:sb,label:'+',key:'__zi',active:false,tid:null},{id:'zo',x:sw-40,y:sh/2+40,r:sb,label:'-',key:'__zo',active:false,tid:null}]}
-_setupLabels(){this.labels.forEach(t=>{if(t.parent)t.parent.removeChild(t);t.destroy()});this.labels.clear();const st={fontFamily:'monospace',fontSize:10,fill:0xAABBCC,align:'center'};
-for(const z of[...this.buttons,...this.topButtons]){const t=new PIXI.Text({text:z.label,style:st});t.anchor.set(0.5,0.5);t.position.set(z.x,z.y);this.container.addChild(t);this.labels.set(z.id,t)}}
-destroy(){window.removeEventListener('touchstart',this._ts);window.removeEventListener('touchmove',this._tm);window.removeEventListener('touchend',this._te);window.removeEventListener('touchcancel',this._te);this._releaseAll();this.labels.forEach(t=>t.destroy())}
-_releaseAll(){this.input.simulateKeyUp('a');this.input.simulateKeyUp('d');this.input.simulateKeyUp('w');this.input.simulateKeyUp('s');this.input.simulateKeyUp('shift');this.input.simulateKeyUp('r');this.input.simulateKeyUp(',');this.input.simulateKeyUp('.');
-this.jActive=false;this.jTouchId=null;this.jKnob.x=this.jBase.x;this.jKnob.y=this.jBase.y;this.jMag=0;
-for(const b of[...this.buttons,...this.topButtons]){b.active=false;b.tid=null}}
-_ts=(e)=>{if(!this.visible)return;for(let i=0;i<e.changedTouches.length;i++){const t=e.changedTouches[i];const{x,y}=this._toCC(t.clientX,t.clientY);
-const jd=Math.sqrt((x-this.jBase.x)**2+(y-this.jBase.y)**2);if(jd<this.jBase.r*1.5&&!this.jActive){this.jActive=true;this.jTouchId=t.identifier;this._uj(x,y);continue}
-for(const b of[...this.buttons,...this.topButtons]){if(Math.sqrt((x-b.x)**2+(y-b.y)**2)<b.r*1.5){b.active=true;b.tid=t.identifier;if(b.key!=='__zi'&&b.key!=='__zo')this.input.simulateKeyDown(b.key)}}}};
-_tm=(e)=>{if(!this.visible)return;for(let i=0;i<e.changedTouches.length;i++){const t=e.changedTouches[i];if(t.identifier===this.jTouchId){const{x,y}=this._toCC(t.clientX,t.clientY);this._uj(x,y)}}};
+constructor(inp,sw,sh){this.inp=inp;this.sw=sw;this.sh=sh;this.visible=false;this.cv=null;
+this.c=new PIXI.Container();this.g=new PIXI.Graphics();this.c.addChild(this.g);this.labels=new Map();
+this.jB={x:0,y:0,r:60};this.jK={x:0,y:0,r:24};this.jOn=false;this.jTid=null;
+this.btns=[];this.tBtns=[];this._setup();this._mkLabels();
+window.addEventListener('touchstart',this._ts,{passive:false});window.addEventListener('touchmove',this._tm,{passive:false});
+window.addEventListener('touchend',this._te,{passive:false});window.addEventListener('touchcancel',this._te,{passive:false})}
+setCanvas(c){this.cv=c}
+_cc(cx,cy){if(this.cv){const r=this.cv.getBoundingClientRect();return{x:(cx-r.left)*(this.sw/r.width),y:(cy-r.top)*(this.sh/r.height)}}return{x:cx,y:cy}}
+_setup(){const sw=this.sw,sh=this.sh,br=Math.min(32,sw*.06),bb=Math.min(42,sw*.08);
+this.jB.x=90;this.jB.y=sh-120;this.jB.r=Math.min(60,sw*.11);this.jK.x=this.jB.x;this.jK.y=this.jB.y;this.jK.r=Math.min(24,sw*.045);
+const rx=sw-80,by=sh-100,sb=Math.min(22,sw*.04);
+this.btns=[{id:'thr',x:rx,y:by-bb*2.4,r:bb,l:'THR',k:'w',on:false,tid:null},{id:'bst',x:rx-bb*2.2,y:by,r:br,l:'BST',k:'shift',on:false,tid:null},{id:'rst',x:rx,y:by,r:br,l:'RST',k:'r',on:false,tid:null}];
+this.tBtns=[{id:'wd',x:sw/2-60,y:50,r:sb,l:'<<',k:',',on:false,tid:null},{id:'wu',x:sw/2+60,y:50,r:sb,l:'>>',k:'.',on:false,tid:null},{id:'zi',x:sw-40,y:sh/2-40,r:sb,l:'+',k:'_zi',on:false,tid:null},{id:'zo',x:sw-40,y:sh/2+40,r:sb,l:'-',k:'_zo',on:false,tid:null}]}
+_mkLabels(){this.labels.forEach(t=>{if(t.parent)t.parent.removeChild(t);t.destroy()});this.labels.clear();
+for(const z of[...this.btns,...this.tBtns]){const t=new PIXI.Text({text:z.l,style:{fontFamily:'monospace',fontSize:10,fill:0xAABBCC}});t.anchor.set(.5,.5);t.position.set(z.x,z.y);this.c.addChild(t);this.labels.set(z.id,t)}}
+destroy(){window.removeEventListener('touchstart',this._ts);window.removeEventListener('touchmove',this._tm);window.removeEventListener('touchend',this._te);window.removeEventListener('touchcancel',this._te);this._rl();this.labels.forEach(t=>t.destroy())}
+_rl(){this.inp.sku('a');this.inp.sku('d');this.inp.sku('w');this.inp.sku('s');this.inp.sku('shift');this.inp.sku('r');this.inp.sku(',');this.inp.sku('.');
+this.jOn=false;this.jTid=null;this.jK.x=this.jB.x;this.jK.y=this.jB.y;for(const b of[...this.btns,...this.tBtns]){b.on=false;b.tid=null}}
+_ts=(e)=>{if(!this.visible)return;for(let i=0;i<e.changedTouches.length;i++){const t=e.changedTouches[i],{x,y}=this._cc(t.clientX,t.clientY);
+if(Math.hypot(x-this.jB.x,y-this.jB.y)<this.jB.r*1.5&&!this.jOn){this.jOn=true;this.jTid=t.identifier;this._uj(x,y);continue}
+for(const b of[...this.btns,...this.tBtns]){if(Math.hypot(x-b.x,y-b.y)<b.r*1.5){b.on=true;b.tid=t.identifier;if(b.k[0]!=='_')this.inp.skd(b.k)}}}};
+_tm=(e)=>{if(!this.visible)return;for(let i=0;i<e.changedTouches.length;i++){const t=e.changedTouches[i];if(t.identifier===this.jTid){const{x,y}=this._cc(t.clientX,t.clientY);this._uj(x,y)}}};
 _te=(e)=>{if(!this.visible)return;for(let i=0;i<e.changedTouches.length;i++){const t=e.changedTouches[i];
-if(t.identifier===this.jTouchId){this.jActive=false;this.jTouchId=null;this.jKnob.x=this.jBase.x;this.jKnob.y=this.jBase.y;this.jMag=0;this.input.simulateKeyUp('a');this.input.simulateKeyUp('d');this.input.simulateKeyUp('w');this.input.simulateKeyUp('s')}
-for(const b of[...this.buttons,...this.topButtons]){if(b.tid===t.identifier){b.active=false;b.tid=null;if(b.key!=='__zi'&&b.key!=='__zo')this.input.simulateKeyUp(b.key)}}}
-if(e.touches.length===0)this._releaseAll()};
-_uj(tx,ty){const dx=tx-this.jBase.x,dy=ty-this.jBase.y,dist=Math.sqrt(dx*dx+dy*dy),max=this.jBase.r;const cd=Math.min(dist,max),a=Math.atan2(dy,dx);
-this.jKnob.x=this.jBase.x+Math.cos(a)*cd;this.jKnob.y=this.jBase.y+Math.sin(a)*cd;this.jMag=cd/max;
-const nx=(this.jKnob.x-this.jBase.x)/max,ny=(this.jKnob.y-this.jBase.y)/max,th=0.25;
-if(nx<-th){this.input.simulateKeyDown('a');this.input.simulateKeyUp('d')}else if(nx>th){this.input.simulateKeyDown('d');this.input.simulateKeyUp('a')}else{this.input.simulateKeyUp('a');this.input.simulateKeyUp('d')}
-if(ny<-th)this.input.simulateKeyDown('w');else this.input.simulateKeyUp('w')}
-getZoomDelta(){let d=0;for(const b of this.topButtons){if(b.active){if(b.key==='__zi')d-=50;if(b.key==='__zo')d+=50}}return d}
-render(){this.g.clear();if(!this.visible){this.container.visible=false;return}this.container.visible=true;
-this.g.circle(this.jBase.x,this.jBase.y,this.jBase.r);this.g.fill({color:0x112233,alpha:0.4});this.g.circle(this.jBase.x,this.jBase.y,this.jBase.r);this.g.stroke({color:0x334466,width:2,alpha:0.5});
-const kc=this.jActive?0x44AAFF:0x6688AA,ka=this.jActive?0.8:0.5;this.g.circle(this.jKnob.x,this.jKnob.y,this.jKnob.r);this.g.fill({color:kc,alpha:ka});this.g.circle(this.jKnob.x,this.jKnob.y,this.jKnob.r);this.g.stroke({color:0x88CCFF,width:1.5,alpha:ka});
-for(const b of this.buttons){const c=b.active?this._ac(b.id):0x112233,bc=b.active?this._ac(b.id):0x334466,a=b.active?0.7:0.35;this.g.circle(b.x,b.y,b.r);this.g.fill({color:c,alpha:a});this.g.circle(b.x,b.y,b.r);this.g.stroke({color:bc,width:2,alpha:a+0.2});const l=this.labels.get(b.id);if(l)l.style.fill=b.active?0xFFFFFF:0xAABBCC}
-for(const b of this.topButtons){const c=b.active?0x445566:0x112233,a=b.active?0.6:0.3;this.g.circle(b.x,b.y,b.r);this.g.fill({color:c,alpha:a});this.g.circle(b.x,b.y,b.r);this.g.stroke({color:0x445566,width:1.5,alpha:a+0.15})}}
-_ac(id){return id==='thrust'?0xFF8800:id==='boost'?0xFF4400:id==='reset'?0x4488FF:0x445566}
-resize(w,h){this.sw=w;this.sh=h;this._setup();this._setupLabels()}
-}
-
-// === GAME (FIXED: NaN guard, z-order, canvas ref) ===
+if(t.identifier===this.jTid){this.jOn=false;this.jTid=null;this.jK.x=this.jB.x;this.jK.y=this.jB.y;this.inp.sku('a');this.inp.sku('d');this.inp.sku('w');this.inp.sku('s')}
+for(const b of[...this.btns,...this.tBtns]){if(b.tid===t.identifier){b.on=false;b.tid=null;if(b.k[0]!=='_')this.inp.sku(b.k)}}}
+if(e.touches.length===0)this._rl()};
+_uj(tx,ty){const dx=tx-this.jB.x,dy=ty-this.jB.y,d=Math.hypot(dx,dy),m=this.jB.r,cd=Math.min(d,m),a=Math.atan2(dy,dx);
+this.jK.x=this.jB.x+Math.cos(a)*cd;this.jK.y=this.jB.y+Math.sin(a)*cd;
+const nx=(this.jK.x-this.jB.x)/m,ny=(this.jK.y-this.jB.y)/m,th=.25;
+if(nx<-th){this.inp.skd('a');this.inp.sku('d')}else if(nx>th){this.inp.skd('d');this.inp.sku('a')}else{this.inp.sku('a');this.inp.sku('d')}
+if(ny<-th)this.inp.skd('w');else this.inp.sku('w')}
+gzd(){let d=0;for(const b of this.tBtns){if(b.on){if(b.k==='_zi')d-=50;if(b.k==='_zo')d+=50}}return d}
+render(){this.g.clear();if(!this.visible){this.c.visible=false;return}this.c.visible=true;
+this.g.circle(this.jB.x,this.jB.y,this.jB.r);this.g.fill({color:0x112233,alpha:.4});this.g.circle(this.jB.x,this.jB.y,this.jB.r);this.g.stroke({color:0x334466,width:2,alpha:.5});
+const kc=this.jOn?0x44AAFF:0x6688AA,ka=this.jOn?.8:.5;this.g.circle(this.jK.x,this.jK.y,this.jK.r);this.g.fill({color:kc,alpha:ka});this.g.circle(this.jK.x,this.jK.y,this.jK.r);this.g.stroke({color:0x88CCFF,width:1.5,alpha:ka});
+for(const b of this.btns){const c=b.on?this._ac(b.id):0x112233,a=b.on?.7:.35;this.g.circle(b.x,b.y,b.r);this.g.fill({color:c,alpha:a});this.g.circle(b.x,b.y,b.r);this.g.stroke({color:b.on?c:0x334466,width:2,alpha:a+.2});const l=this.labels.get(b.id);if(l)l.style.fill=b.on?0xFFFFFF:0xAABBCC}
+for(const b of this.tBtns){const a=b.on?.6:.3;this.g.circle(b.x,b.y,b.r);this.g.fill({color:b.on?0x445566:0x112233,alpha:a});this.g.circle(b.x,b.y,b.r);this.g.stroke({color:0x445566,width:1.5,alpha:a+.15})}}
+_ac(id){return id==='thr'?0xFF8800:id==='bst'?0xFF4400:0x4488FF}
+resize(w,h){this.sw=w;this.sh=h;this._setup();this._mkLabels()}}
 class Game{
-constructor(){this.app=new PIXI.Application();this.camera=new Camera();this.input=new InputManager();this.timeWarpIndex=0;this.orbitPrediction=null;this.orbitPredictionTimer=0;this.running=false;this.accumulator=0;this.lastTime=0}
-async init(container){
-  const w=container.clientWidth,h=container.clientHeight;
-  await this.app.init({width:w,height:h,backgroundColor:0x050510,antialias:true,resolution:window.devicePixelRatio||1,autoDensity:true});
-  container.appendChild(this.app.canvas);this.input.init(this.app.canvas);this.camera.setScreenSize(w,h);
-  const data=createSolarSystem();this.world=data.world;this.star=data.star;this.planets=data.planets;this.moons=data.moons;this.ship=data.ship;
-  const isMobile=this.input.isMobile;
-  this.starfield=new Starfield(w,h);this.planetRenderer=new PlanetRenderer();this.shipRenderer=new ShipRenderer();this.particles=new ParticleSystem();this.orbitRenderer=new OrbitRenderer();
-  const mmSize=isMobile?Math.min(120,Math.floor(w*0.28)):180;
-  this.hud=new HUD(w,h,isMobile);this.minimap=new Minimap(mmSize);this.minimap.setPosition(w,h);
-  this.touchControls=new TouchControls(this.input,w,h);this.touchControls.setCanvas(this.app.canvas);this.touchControls.visible=isMobile;
-  // Z-order: starfield, orbits, planets, ship, particles, hud, minimap, touch
-  this.app.stage.addChild(this.starfield.container);this.app.stage.addChild(this.orbitRenderer.container);this.app.stage.addChild(this.planetRenderer.container);
-  this.app.stage.addChild(this.shipRenderer.container);this.app.stage.addChild(this.particles.container);
-  this.app.stage.addChild(this.hud.container);this.app.stage.addChild(this.minimap.container);this.app.stage.addChild(this.touchControls.container);
-  this.camera.setFollowTarget(this.ship);this.camera.targetZoom=0.8;
-  window.addEventListener('resize',this._onResize);this.running=true;this.lastTime=performance.now();this._loop()}
-destroy(){this.running=false;window.removeEventListener('resize',this._onResize);this.input.destroy();this.touchControls.destroy();this.app.destroy(true,{children:true})}
-_onResize=()=>{const p=this.app.canvas.parentElement;if(!p)return;const w=p.clientWidth,h=p.clientHeight;this.app.renderer.resize(w,h);this.camera.setScreenSize(w,h);this.hud.resize(w,h);this.minimap.resize(w,h);this.touchControls.resize(w,h)};
-_loop=()=>{if(!this.running)return;const now=performance.now(),ft=Math.min((now-this.lastTime)/1000,0.1);this.lastTime=now;
-const tw=TIME_WARP_LEVELS[this.timeWarpIndex];this.accumulator+=ft*tw;
-while(this.accumulator>=PHYSICS_DT){this._input(PHYSICS_DT);this._physics(PHYSICS_DT);this.accumulator-=PHYSICS_DT}
-this._render();this.input.endFrame();requestAnimationFrame(this._loop)};
-_input(dt){
-  this.ship.isThrusting=this.input.isKeyDown('w')||this.input.isKeyDown('arrowup');
-  this.ship.isBoosting=this.input.isKeyDown('shift');
-  if(this.input.isKeyDown('a')||this.input.isKeyDown('arrowleft'))this.ship.rotateLeft(dt);
-  if(this.input.isKeyDown('d')||this.input.isKeyDown('arrowright'))this.ship.rotateRight(dt);
-  if(this.input.isKeyJustPressed('.'))this.timeWarpIndex=Math.min(this.timeWarpIndex+1,TIME_WARP_LEVELS.length-1);
-  if(this.input.isKeyJustPressed(','))this.timeWarpIndex=Math.max(this.timeWarpIndex-1,0);
-  const zoom=this.input.getScrollDelta()+this.input.pinchDelta+this.touchControls.getZoomDelta();
-  if(zoom!==0)this.camera.adjustZoom(zoom);
-  if(this.input.isKeyJustPressed('c')){if(this.camera.mode==='follow_ship')this.camera.mode='free_cam';else{this.camera.mode='follow_ship';this.camera.setFollowTarget(this.ship)}}
-  if(this.camera.mode==='free_cam'){const ps=500/this.camera.zoom;if(this.input.isKeyDown('w'))this.camera.pan(0,-ps*dt);if(this.input.isKeyDown('s'))this.camera.pan(0,ps*dt);if(this.input.isKeyDown('a'))this.camera.pan(-ps*dt,0);if(this.input.isKeyDown('d'))this.camera.pan(ps*dt,0)}
-  if(this.input.isKeyJustPressed('r'))this._reset();
-  if(this.ship.isThrusting&&this.timeWarpIndex>0)this.timeWarpIndex=0}
-_physics(dt){
-  this.world.update(dt);const grav=this.world.calculateGravityAcceleration(this.ship.position);const thrust=this.ship.applyThrust(dt);const ta=grav.add(thrust);
-  this.ship.position.x+=this.ship.velocity.x*dt+0.5*this.ship.acceleration.x*dt*dt;
-  this.ship.position.y+=this.ship.velocity.y*dt+0.5*this.ship.acceleration.y*dt*dt;
-  const ng=this.world.calculateGravityAcceleration(this.ship.position);
-  const nt=this.ship.isThrusting?this.ship.thrustDirection.scale(this.ship.isBoosting?this.ship.thrustPower*2.5:this.ship.thrustPower).scale(this.ship.fuel>0?this.ship.throttle:0):Vector2.zero();
-  const nta=ng.add(nt);this.ship.velocity.x+=0.5*(ta.x+nta.x)*dt;this.ship.velocity.y+=0.5*(ta.y+nta.y)*dt;this.ship.acceleration=nta;
-  // NaN guard
-  if(isNaN(this.ship.position.x)||isNaN(this.ship.position.y)||isNaN(this.ship.velocity.x)||isNaN(this.ship.velocity.y)){this._reset();return}
-  if(this.ship.isThrusting&&this.ship.fuel>0){const ed=Vector2.fromAngle(this.ship.rotation+Math.PI);this.particles.emit(this.ship.position.add(ed.scale(8)),ed.scale(80),this.ship.isBoosting?3:1,{color:this.ship.isBoosting?0xFF4400:0xFF8800,speed:40,spread:0.5,life:0.6,size:2.5})}
-  for(const b of this.world.bodies){if(this.ship.position.distanceTo(b.position)<b.radius+5){this._reset();break}}
-  this.particles.update(dt);this.orbitPredictionTimer+=dt;
-  if(this.orbitPredictionTimer>=0.1){this.orbitPredictionTimer=0;this.orbitPrediction=OrbitalMechanics.predictOrbit(this.ship.position,this.ship.velocity,this.world)}}
-_render(){this.camera.update();this.starfield.render(this.camera);this.orbitRenderer.render(this.orbitPrediction,this.camera);
-  const nfb=this.world.bodies.filter(b=>!b.fixed);this.orbitRenderer.renderBodyOrbits(nfb,this.star.position,this.camera);
-  this.planetRenderer.render(this.world.bodies,this.camera);this.shipRenderer.render(this.ship,this.camera);this.particles.render(this.camera);
-  const dom=this.world.findDominantBody(this.ship.position);this.hud.update(this.ship,dom,TIME_WARP_LEVELS[this.timeWarpIndex]);this.minimap.render(this.world.bodies,this.ship);this.touchControls.render()}
-_reset(){const data=createSolarSystem();this.ship.position=data.ship.position.clone();this.ship.velocity=data.ship.velocity.clone();this.ship.rotation=data.ship.rotation;this.ship.fuel=this.ship.maxFuel;this.ship.acceleration=Vector2.zero();this.timeWarpIndex=0;this.camera.setFollowTarget(this.ship);this.camera.mode='follow_ship'}
-}
-
-// === LAUNCH ===
-(async()=>{const c=document.getElementById('game');const g=new Game();await g.init(c)})();
-</script>
-</body>
-</html>
+constructor(){this.app=new PIXI.Application();this.cam=new Camera();this.inp=new InputManager();this.twi=0;this.op=null;this.opt=0;this.running=false;this.acc=0;this.lt=0}
+async init(el){const w=el.clientWidth,h=el.clientHeight;
+await this.app.init({width:w,height:h,backgroundColor:0x050510,antialias:true,resolution:window.devicePixelRatio||1,autoDensity:true});
+el.appendChild(this.app.canvas);this.inp.init(this.app.canvas);this.cam.setSz(w,h);
+this._initWorld();
+const mob=this.inp.isMobile;
+this.sf=new Starfield(w,h);this.pr=new PlanetRenderer();this.sr=new ShipRenderer();this.ps=new ParticleSystem();this.or=new OrbitRenderer();
+this.hud=new HUD(w,h,mob);this.mm=new Minimap(mob?Math.min(120,Math.floor(w*.28)):180);this.mm.setPos(w,h);
+this.tc=new TouchControls(this.inp,w,h);this.tc.setCanvas(this.app.canvas);this.tc.visible=mob;
+this.app.stage.addChild(this.sf.c);this.app.stage.addChild(this.or.c);this.app.stage.addChild(this.pr.c);
+this.app.stage.addChild(this.sr.c);this.app.stage.addChild(this.ps.c);
+this.app.stage.addChild(this.hud.c);this.app.stage.addChild(this.mm.c);this.app.stage.addChild(this.tc.c);
+this.cam.setTarget(this.ship);this.cam.targetZoom=.8;
+window.addEventListener('resize',this._rsz);this.running=true;this.lt=performance.now();this._loop()}
+_initWorld(){const d=createSolarSystem();this.world=d.w;this.star=d.star;this.ship=d.ship;this.op=null;this.opt=0;this.twi=0}
+destroy(){this.running=false;window.removeEventListener('resize',this._rsz);this.inp.destroy();this.tc.destroy();this.app.destroy(true,{children:true})}
+_rsz=()=>{const p=this.app.canvas.parentElement;if(!p)return;const w=p.clientWidth,h=p.clientHeight;this.app.renderer.resize(w,h);this.cam.setSz(w,h);this.hud.resize(w,h);this.mm.resize(w,h);this.tc.resize(w,h)};
+_loop=()=>{if(!this.running)return;const now=performance.now(),ft=Math.min((now-this.lt)/1000,.1);this.lt=now;
+this.acc+=ft*TIME_WARP_LEVELS[this.twi];while(this.acc>=PHYSICS_DT){this._inp(PHYSICS_DT);this._phys(PHYSICS_DT);this.acc-=PHYSICS_DT}
+this._draw();this.inp.ef();requestAnimationFrame(this._loop)};
+_inp(dt){
+this.ship.isThrusting=this.inp.kd('w')||this.inp.kd('arrowup');
+this.ship.isBoosting=this.inp.kd('shift');
+if(this.inp.kd('a')||this.inp.kd('arrowleft'))this.ship.rotL(dt);
+if(this.inp.kd('d')||this.inp.kd('arrowright'))this.ship.rotR(dt);
+if(this.inp.kjp('.'))this.twi=Math.min(this.twi+1,TIME_WARP_LEVELS.length-1);
+if(this.inp.kjp(','))this.twi=Math.max(this.twi-1,0);
+const z=this.inp.gsd()+this.inp.pinchDelta+this.tc.gzd();if(z)this.cam.adjZoom(z);
+if(this.inp.kjp('c')){if(this.cam.mode==='follow')this.cam.mode='free';else{this.cam.mode='follow';this.cam.setTarget(this.ship)}}
+if(this.cam.mode==='free'){const ps=500/this.cam.zoom;if(this.inp.kd('w'))this.cam.pan(0,-ps*dt);if(this.inp.kd('s'))this.cam.pan(0,ps*dt);if(this.inp.kd('a'))this.cam.pan(-ps*dt,0);if(this.inp.kd('d'))this.cam.pan(ps*dt,0)}
+if(this.inp.kjp('r'))this._reset();
+if(this.ship.isThrusting&&this.twi>0)this.twi=0}
+_phys(dt){
+this.world.update(dt);
+const grav=this.world.calcGrav(this.ship.position);const thr=this.ship.thrust(dt);const ta=grav.add(thr);
+this.ship.position.x+=this.ship.velocity.x*dt+.5*this.ship.acceleration.x*dt*dt;
+this.ship.position.y+=this.ship.velocity.y*dt+.5*this.ship.acceleration.y*dt*dt;
+const ng=this.world.calcGrav(this.ship.position);
+const nt=this.ship.isThrusting?this.ship.td.scale(this.ship.isBoosting?this.ship.thrustPower*2.5:this.ship.thrustPower).scale(this.ship.fuel>0?this.ship.throttle:0):Vector2.zero();
+const nta=ng.add(nt);this.ship.velocity.x+=.5*(ta.x+nta.x)*dt;this.ship.velocity.y+=.5*(ta.y+nta.y)*dt;this.ship.acceleration=nta;
+if(isNaN(this.ship.position.x)||isNaN(this.ship.velocity.x)){this._reset();return}
+if(this.ship.isThrusting&&this.ship.fuel>0){const ed=Vector2.fromAngle(this.ship.rotation+Math.PI);
+this.ps.emit(this.ship.position.add(ed.scale(8)),ed.scale(80),this.ship.isBoosting?3:1,{color:this.ship.isBoosting?0xFF4400:0xFF8800,speed:40,spread:.5,life:.6,size:2.5})}
+for(const b of this.world.bodies){if(this.ship.position.distanceTo(b.position)<b.radius+5){this._reset();return}}
+this.ps.update(dt);this.opt+=dt;
+if(this.opt>=.2){this.opt=0;this.op=OrbitalMechanics.predict(this.ship.position,this.ship.velocity,this.world)}}
+_draw(){this.cam.update();this.sf.render(this.cam);this.or.render(this.op,this.cam);
+const nfb=this.world.bodies.filter(b=>!b.fixed);this.or.orbits(nfb,this.star.position,this.cam);
+this.pr.render(this.world.bodies,this.cam);this.sr.render(this.ship,this.cam);this.ps.render(this.cam);
+const dom=this.world.findDom(this.ship.position);this.hud.update(this.ship,dom,TIME_WARP_LEVELS[this.twi]);this.mm.render(this.world.bodies,this.ship);this.tc.render()}
+_reset(){this._initWorld();this.cam.setTarget(this.ship);this.cam.mode='follow'}}
+(async()=>{try{const g=new Game();await g.init(document.getElementById('game'))}catch(e){document.body.innerHTML='<p style="color:red;padding:20px;font-family:monospace">Error: '+e.message+'</p>'}})();
+</script></body></html>

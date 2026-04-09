@@ -293,12 +293,14 @@ export class Game {
     this.particles.update(dt);
 
     this.orbitPredictionTimer += dt;
-    if (this.orbitPredictionTimer >= 0.1) {
+    if (this.orbitPredictionTimer >= 0.2) {
       this.orbitPredictionTimer = 0;
       this.orbitPrediction = OrbitalMechanics.predictOrbit(
         this.ship.position,
         this.ship.velocity,
-        this.world
+        this.world,
+        300, // fewer steps on mobile
+        1.0  // larger timestep = less precise but faster
       );
     }
   }
@@ -317,8 +319,8 @@ export class Game {
     );
 
     this.planetRenderer.render(this.world.bodies, this.camera);
-    this.particles.render(this.camera);
     this.shipRenderer.render(this.ship, this.camera);
+    this.particles.render(this.camera);
 
     const dominantBody = this.world.findDominantBody(this.ship.position);
     this.hud.update(this.ship, dominantBody, TIME_WARP_LEVELS[this.timeWarpIndex]);
@@ -328,11 +330,15 @@ export class Game {
 
   private resetShip() {
     const data = createSolarSystem();
-    this.ship.position = data.ship.position.clone();
-    this.ship.velocity = data.ship.velocity.clone();
-    this.ship.rotation = data.ship.rotation;
-    this.ship.fuel = this.ship.maxFuel;
-    this.ship.acceleration = Vector2.zero();
+    // Reset entire world — bodies have moved, so ship coords from a fresh
+    // solar system wouldn't match the old body positions
+    this.world = data.world;
+    this.star = data.star;
+    this.planets = data.planets;
+    this.moons = data.moons;
+    this.ship = data.ship;
+    this.orbitPrediction = null;
+    this.orbitPredictionTimer = 0;
     this.timeWarpIndex = 0;
     this.camera.setFollowTarget(this.ship);
     this.camera.mode = CameraMode.FollowShip;
