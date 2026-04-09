@@ -11,7 +11,6 @@ export class InputManager {
   private _isMobile: boolean = false;
   private _pinchDelta: number = 0;
   private lastPinchDist: number = 0;
-  private activeTouches: Map<number, { x: number; y: number }> = new Map();
 
   get isMobile(): boolean {
     return this._isMobile;
@@ -130,35 +129,23 @@ export class InputManager {
     this.mouseDown = false;
   };
 
-  // --- Touch handlers ---
+  // --- Touch handlers (pinch-to-zoom only; buttons/joystick handled by TouchControls) ---
 
   private onTouchStart = (e: TouchEvent) => {
     e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      this.activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0], t2 = e.touches[1];
+      this.lastPinchDist = Math.sqrt((t2.clientX - t1.clientX) ** 2 + (t2.clientY - t1.clientY) ** 2);
     }
-    this.updatePinchState(e);
   };
 
   private onTouchMove = (e: TouchEvent) => {
     e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      this.activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
-    }
-
-    // Pinch-to-zoom with 2 fingers
     if (e.touches.length === 2) {
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dist = Math.sqrt((t2.clientX - t1.clientX) ** 2 + (t2.clientY - t1.clientY) ** 2);
       if (this.lastPinchDist > 0) {
-        const delta = this.lastPinchDist - dist;
-        this._pinchDelta += delta * 3; // Scale for sensitivity
+        this._pinchDelta += (this.lastPinchDist - dist) * 3;
       }
       this.lastPinchDist = dist;
     }
@@ -166,23 +153,8 @@ export class InputManager {
 
   private onTouchEnd = (e: TouchEvent) => {
     e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      this.activeTouches.delete(e.changedTouches[i].identifier);
-    }
     if (e.touches.length < 2) {
       this.lastPinchDist = 0;
     }
   };
-
-  private updatePinchState(e: TouchEvent) {
-    if (e.touches.length === 2) {
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      this.lastPinchDist = Math.sqrt(dx * dx + dy * dy);
-    } else {
-      this.lastPinchDist = 0;
-    }
-  }
 }
